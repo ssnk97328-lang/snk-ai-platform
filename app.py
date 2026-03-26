@@ -86,19 +86,17 @@ if files:
     # CLEAN COLUMN NAMES
     df.columns = [c.strip().lower().replace(" ", "_") for c in df.columns]
 
-    # TRY CONVERTING NUMBERS
+    # CONVERT TYPES
     for col in df.columns:
         df[col] = df[col].astype(str).str.replace(",", "")
         df[col] = pd.to_numeric(df[col], errors="ignore")
 
-    # DETECT TYPES AFTER CLEAN
+    # DETECT TYPES
     num_cols = df.select_dtypes(include=np.number).columns.tolist()
     cat_cols = df.select_dtypes(exclude=np.number).columns.tolist()
 
     # FILL ONLY CATEGORICAL
     df[cat_cols] = df[cat_cols].fillna("Unknown")
-
-    # KEEP NUMERIC CLEAN (NO "Unknown")
     df = df.drop_duplicates()
 
     # ---------------- GLOBAL FILTER ----------------
@@ -125,77 +123,71 @@ if files:
     st.subheader("🎯 Dashboard Slicer")
 
     col1, col2 = st.columns(2)
-
-    # 🔥 FIXED HERE
     x_axis = col1.selectbox("X Axis (Category)", cat_cols)
     y_axis = col2.selectbox("Y Axis (Numeric)", num_cols)
 
-    # ---------------- DATA PREP ----------------
     def prepare_chart_data(df, x_axis, y_axis):
         try:
-            g = (
-                df.groupby(x_axis, dropna=False)[y_axis]
+            return (
+                df.groupby(x_axis)[y_axis]
                 .sum()
                 .reset_index()
                 .sort_values(by=y_axis, ascending=False)
                 .head(20)
             )
-            return g
-        except Exception as e:
-            st.error(f"Chart Error: {e}")
+        except:
             return df.head(50)
 
     chart_df = prepare_chart_data(df, x_axis, y_axis)
 
     # ---------------- DASHBOARD ----------------
-    def render_dashboard():
+    st.markdown("### 📊 Dynamic Dashboard")
 
-        st.markdown("### 📊 Dynamic Dashboard")
+    c1, c2 = st.columns(2)
+    c1.plotly_chart(px.bar(chart_df, x=x_axis, y=y_axis), use_container_width=True)
+    c2.plotly_chart(px.pie(chart_df, names=x_axis, values=y_axis), use_container_width=True)
 
-        c1, c2 = st.columns(2)
+    st.plotly_chart(px.line(chart_df, x=x_axis, y=y_axis), use_container_width=True)
+    st.dataframe(chart_df, use_container_width=True)
 
-        # BAR
-        c1.plotly_chart(px.bar(chart_df, x=x_axis, y=y_axis), use_container_width=True)
+    # ---------------- FORECAST ----------------
+    st.subheader("📈 Forecasting")
 
-        # PIE
-        c2.plotly_chart(px.pie(chart_df, names=x_axis, values=y_axis), use_container_width=True)
+    if num_cols:
 
-        # LINE
-        st.plotly_chart(px.line(chart_df, x=x_axis, y=y_axis), use_container_width=True)
+        f1, f2 = st.columns(2)
 
-        st.dataframe(chart_df, use_container_width=True)
+        forecast_col = f1.selectbox("Select Column for Forecast", num_cols)
 
-    # ---------------- SECTIONS ----------------
-    if section == "All View":
-        st.dataframe(df.head(200))
-        render_dashboard()
+        date_cols = [c for c in df.columns if "date" in c.lower()]
+        date_col = f2.selectbox("Optional Time Column", ["None"] + date_cols)
 
-    elif section == "Dashboard":
-        render_dashboard()
+        dff = df[[forecast_col]].dropna().reset_index()
 
-    elif section == "Sales":
-        render_dashboard()
+        if len(dff) > 1:
 
-    elif section == "AI Tool":
-        st.subheader("🤖 AI Tool")
+            z = np.polyfit(dff.index, dff[forecast_col], 1)
+            p = np.poly1d(z)
 
-        q = st.text_input("Ask your data")
-        if q and AI_AVAILABLE:
-            sample = df.head(50).to_csv(index=False)
-            res = client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[{"role": "user", "content": sample + "\n" + q}]
+            future_range = 15
+
+            future = pd.DataFrame({
+                "index": range(len(dff), len(dff) + future_range),
+                forecast_col: p(range(len(dff), len(dff) + future_range))
+            })
+
+            full = pd.concat([dff, future])
+
+            st.plotly_chart(
+                px.line(full, x="index", y=forecast_col,
+                        title=f"Forecast for {forecast_col}"),
+                use_container_width=True
             )
-            st.write(res.choices[0].message.content)
 
-    elif section == "Maps":
-        lat = [c for c in df.columns if "lat" in c]
-        lon = [c for c in df.columns if "lon" in c]
+            st.info("🔮 Linear trend prediction (simple forecasting model)")
 
-        if lat and lon:
-            st.map(df[[lat[0], lon[0]]].dropna())
         else:
-            st.warning("No map data")
+            st.warning("Not enough data for forecasting")
 
     # ---------------- ANOMALY ----------------
     st.subheader("🚨 Anomaly Detection")
@@ -216,24 +208,6 @@ if files:
         top = df[cat_cols[0]].value_counts().idxmax()
         pct = round(df[cat_cols[0]].value_counts(normalize=True).max()*100, 2)
         st.write(f"🔹 {top} contributes {pct}%")
-
-    # ---------------- FORECAST ----------------
-    st.subheader("📈 Forecasting")
-
-    if num_cols:
-        col = num_cols[0]
-        dff = df[[col]].dropna().reset_index()
-
-        z = np.polyfit(dff.index, dff[col], 1)
-        p = np.poly1d(z)
-
-        future = pd.DataFrame({
-            "index": range(len(dff), len(dff)+10),
-            col: p(range(len(dff), len(dff)+10))
-        })
-
-        full = pd.concat([dff, future])
-        st.plotly_chart(px.line(full, x="index", y=col), use_container_width=True)
 
     # ---------------- PDF ----------------
     st.subheader("📥 Download PDF")
