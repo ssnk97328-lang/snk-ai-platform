@@ -1,4 +1,4 @@
-import streamlit as st
+import streamlit as st 
 import pandas as pd
 import plotly.express as px
 from io import BytesIO
@@ -13,10 +13,41 @@ from reportlab.lib.styles import getSampleStyleSheet
 # OPTIONAL AI
 try:
     from openai import OpenAI
-    client = OpenAI()
+    client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
     AI_AVAILABLE = True
 except:
     AI_AVAILABLE = False
+
+
+# ---------------- PAGE CONFIG ----------------
+st.set_page_config(page_title="SNK AI Platform", layout="wide", page_icon="🚀")
+
+# ---------------- MULTI USER LOGIN ----------------
+USERS = {
+    os.getenv("APP_USER1", "admin"): os.getenv("APP_PASS1", "1234"),
+    os.getenv("APP_USER2", "user"): os.getenv("APP_PASS2", "1111")
+}
+
+if "login" not in st.session_state:
+    st.session_state.login = False
+
+def login():
+    st.markdown("<h1 style='text-align:center;'>🔐 SNK Secure Gateway</h1>", unsafe_allow_html=True)
+
+    user = st.text_input("Username")
+    pwd = st.text_input("Password", type="password")
+
+    if st.button("🚀 Login", use_container_width=True):
+        if user in USERS and USERS[user] == pwd:
+            st.session_state.login = True
+            st.success("Access Granted")
+            st.rerun()
+        else:
+            st.error("Invalid Credentials")
+
+if not st.session_state.login:
+    login()
+    st.stop()
 
 
 # ---------------- SAFE LOTTIE ----------------
@@ -36,48 +67,15 @@ def render_lottie(data, height=200):
     except:
         pass
 
-lottie_login = load_lottieurl("https://assets10.lottiefiles.com/packages/lf20_6aYlH8.json")
 lottie_data = load_lottieurl("https://assets5.lottiefiles.com/packages/lf20_fcfjwiyb.json")
 
 
-# ---------------- LOGIN ----------------
-if "login" not in st.session_state:
-    st.session_state.login = False
-
-def login():
-    st.markdown("<h1 style='text-align:center;'>🔐 SNK Secure Gateway</h1>", unsafe_allow_html=True)
-
-    col1, col2, col3 = st.columns([1,2,1])
-    with col2:
-        render_lottie(lottie_login, 200)
-
-        with st.container(border=True):
-            user = st.text_input("Username", placeholder="admin")
-            pwd = st.text_input("Password", type="password")
-
-            if st.button("🚀 Login", use_container_width=True):
-                if user == "admin" and pwd == "1234":
-                    st.session_state.login = True
-                    st.success("Access Granted")
-                    st.rerun()
-                else:
-                    st.error("Invalid Credentials")
-
-if not st.session_state.login:
-    st.set_page_config(page_title="Login", page_icon="🔐")
-    login()
-    st.stop()
-
-
-# ---------------- PAGE ----------------
-st.set_page_config(page_title="SNK AI Platform", layout="wide")
-
-# SIDEBAR
+# ---------------- SIDEBAR ----------------
 st.sidebar.title("🚀 SNK Platform")
 theme = st.sidebar.toggle("🌗 Dark Mode", True)
 
 files = st.sidebar.file_uploader(
-    "📂 Upload Files",
+    "📂 Upload Files (Large Supported)",
     type=["csv", "xlsx"],
     accept_multiple_files=True
 )
@@ -88,47 +86,30 @@ section = st.radio(
     horizontal=True
 )
 
-# ---------------- STYLE ----------------
+# ---------------- PREMIUM STYLE ----------------
 if theme:
     st.markdown("""
     <style>
     .stApp {background: linear-gradient(135deg,#0f2027,#203a43,#2c5364); color:white;}
-    .hero {background:#0b1a2a;padding:20px;border-radius:20px;margin-bottom:20px;}
-    </style>
-    """, unsafe_allow_html=True)
-else:
-    st.markdown("""
-    <style>
-    .stApp {background:#f0f2f5;color:black;}
-    .hero {background:white;padding:20px;border-radius:20px;margin-bottom:20px;}
+    .block-container {padding-top: 1rem;}
     </style>
     """, unsafe_allow_html=True)
 
 px.defaults.template = "plotly_dark"
 
 
-# ---------------- HERO SECTION (SAFE IMAGE) ----------------
-st.markdown('<div class="hero">', unsafe_allow_html=True)
-
+# ---------------- HEADER ----------------
 st.markdown("<h1 style='text-align:center;'>🚀 SNK AI Data Platform</h1>", unsafe_allow_html=True)
-
-def load_banner():
-    local = "banner.png"
-    fallback = "https://images.unsplash.com/photo-1551288049-bebda4e38f71"
-    return local if os.path.exists(local) else fallback
-
-st.image(load_banner(), use_container_width=True)
-
-st.markdown('</div>', unsafe_allow_html=True)
+st.markdown("<h4 style='text-align:center;'>AI Powered Analytics Dashboard</h4>", unsafe_allow_html=True)
 
 
 # ---------------- DATA ----------------
 if files:
-    with st.spinner("Processing data..."):
+    with st.spinner("Processing large data..."):
         dfs = []
         for f in files:
             if f.name.endswith(".csv"):
-                for chunk in pd.read_csv(f, chunksize=100000):
+                for chunk in pd.read_csv(f, chunksize=50000):  # LARGE FILE SUPPORT
                     dfs.append(chunk)
             else:
                 dfs.append(pd.read_excel(f))
@@ -137,18 +118,7 @@ if files:
 
     # CLEAN
     df.columns = [c.strip().lower().replace(" ", "_") for c in df.columns]
-    df = df.loc[:, ~df.columns.str.contains("^unnamed")]
-
-    for col in df.columns:
-        try:
-            df[col] = df[col].astype(str).str.strip().str.replace(",", "")
-            df[col] = pd.to_numeric(df[col], errors="ignore")
-        except:
-            pass
-
-    before = len(df)
     df = df.fillna("Unknown").drop_duplicates()
-    removed = before - len(df)
 
     num_cols = df.select_dtypes(include="number").columns.tolist()
     cat_cols = df.select_dtypes(exclude="number").columns.tolist()
@@ -158,7 +128,7 @@ if files:
     c1, c2, c3 = st.columns(3)
     c1.metric("Total Records", len(df))
     c2.metric("Columns", len(df.columns))
-    c3.metric("Duplicates Removed", removed)
+    c3.metric("Numeric Columns", len(num_cols))
 
     # ---------------- FILTER ----------------
     st.subheader("🔍 Filters")
@@ -228,17 +198,6 @@ if files:
         else:
             st.warning("No lat/lon columns")
 
-    # ---------------- ANOMALY ----------------
-    st.subheader("🚨 Anomaly Detection")
-    if num_cols:
-        col = st.selectbox("Column", num_cols)
-        Q1 = df[col].quantile(0.25)
-        Q3 = df[col].quantile(0.75)
-        IQR = Q3 - Q1
-        outliers = df[(df[col] < Q1-1.5*IQR) | (df[col] > Q3+1.5*IQR)]
-        st.write("Outliers:", len(outliers))
-        st.dataframe(outliers.head(50))
-
     # ---------------- EXPORT ----------------
     st.subheader("📥 Export")
 
@@ -249,7 +208,7 @@ if files:
     st.download_button("Download Excel", out.getvalue())
 
     # PDF
-    report = f"Rows: {len(df)}\nColumns: {len(df.columns)}\nRemoved: {removed}"
+    report = f"Rows: {len(df)} | Columns: {len(df.columns)}"
 
     def create_pdf(text):
         buffer = BytesIO()
@@ -268,3 +227,10 @@ if files:
 else:
     render_lottie(lottie_data, 300)
     st.info("👈 Upload files to start")
+
+
+# ---------------- FOOTER ----------------
+st.markdown("""
+<hr>
+<p style='text-align:center;'>© 2026 SNK AI Platform | Built by SNK</p>
+""", unsafe_allow_html=True)
