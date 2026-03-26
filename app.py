@@ -10,17 +10,8 @@ import os
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet
 
-# OPTIONAL AI
-try:
-    from openai import OpenAI
-    client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-    AI_AVAILABLE = True
-except:
-    AI_AVAILABLE = False
-
-
-# ---------------- PAGE CONFIG ----------------
-st.set_page_config(page_title="SNK AI Platform", layout="wide", page_icon="🚀")
+# ---------------- CONFIG ----------------
+st.set_page_config(page_title="SNK AI Platform", layout="wide", page_icon="📊")
 
 # ---------------- MULTI USER LOGIN ----------------
 USERS = {
@@ -32,8 +23,7 @@ if "login" not in st.session_state:
     st.session_state.login = False
 
 def login():
-    st.markdown("<h1 style='text-align:center;'>🔐 SNK Secure Gateway</h1>", unsafe_allow_html=True)
-
+    st.markdown("<h1 style='text-align:center;'>🔐 SNK Data Platform</h1>", unsafe_allow_html=True)
     user = st.text_input("Username")
     pwd = st.text_input("Password", type="password")
 
@@ -49,8 +39,7 @@ if not st.session_state.login:
     login()
     st.stop()
 
-
-# ---------------- SAFE LOTTIE ----------------
+# ---------------- LOTTIE ----------------
 def load_lottieurl(url):
     try:
         r = requests.get(url, timeout=5)
@@ -69,7 +58,6 @@ def render_lottie(data, height=200):
 
 lottie_data = load_lottieurl("https://assets5.lottiefiles.com/packages/lf20_fcfjwiyb.json")
 
-
 # ---------------- SIDEBAR ----------------
 st.sidebar.title("🚀 SNK Platform")
 theme = st.sidebar.toggle("🌗 Dark Mode", True)
@@ -82,34 +70,31 @@ files = st.sidebar.file_uploader(
 
 section = st.radio(
     "Navigation",
-    ["All View", "Dashboard", "AI Tool", "Maps"],
+    ["All View", "Dashboard", "Sales", "Maps"],
     horizontal=True
 )
 
-# ---------------- PREMIUM STYLE ----------------
+# ---------------- STYLE ----------------
 if theme:
     st.markdown("""
     <style>
     .stApp {background: linear-gradient(135deg,#0f2027,#203a43,#2c5364); color:white;}
-    .block-container {padding-top: 1rem;}
     </style>
     """, unsafe_allow_html=True)
 
 px.defaults.template = "plotly_dark"
 
-
 # ---------------- HEADER ----------------
-st.markdown("<h1 style='text-align:center;'>🚀 SNK AI Data Platform</h1>", unsafe_allow_html=True)
-st.markdown("<h4 style='text-align:center;'>AI Powered Analytics Dashboard</h4>", unsafe_allow_html=True)
-
+st.markdown("<h1 style='text-align:center;'>📊 SNK Analytics Platform</h1>", unsafe_allow_html=True)
+st.markdown("<h4 style='text-align:center;'>Advanced Data Dashboard</h4>", unsafe_allow_html=True)
 
 # ---------------- DATA ----------------
 if files:
-    with st.spinner("Processing large data..."):
+    with st.spinner("Processing data..."):
         dfs = []
         for f in files:
             if f.name.endswith(".csv"):
-                for chunk in pd.read_csv(f, chunksize=50000):  # LARGE FILE SUPPORT
+                for chunk in pd.read_csv(f, chunksize=50000):
                     dfs.append(chunk)
             else:
                 dfs.append(pd.read_excel(f))
@@ -120,15 +105,36 @@ if files:
     df.columns = [c.strip().lower().replace(" ", "_") for c in df.columns]
     df = df.fillna("Unknown").drop_duplicates()
 
+    # ADVANCED CLEANING
+    for col in df.columns:
+        try:
+            df[col] = pd.to_numeric(df[col])
+        except:
+            pass
+
+    date_cols = []
+    for col in df.columns:
+        try:
+            df[col] = pd.to_datetime(df[col])
+            date_cols.append(col)
+        except:
+            pass
+
     num_cols = df.select_dtypes(include="number").columns.tolist()
     cat_cols = df.select_dtypes(exclude="number").columns.tolist()
 
     # ---------------- KPI ----------------
-    st.subheader("📊 KPIs")
-    c1, c2, c3 = st.columns(3)
+    st.subheader("📊 Advanced KPIs")
+    c1, c2, c3, c4 = st.columns(4)
+
     c1.metric("Total Records", len(df))
     c2.metric("Columns", len(df.columns))
-    c3.metric("Numeric Columns", len(num_cols))
+
+    if num_cols:
+        total = df[num_cols].sum().sum()
+        avg = df[num_cols].mean().mean()
+        c3.metric("Total Value", f"{total:,.0f}")
+        c4.metric("Avg Value", f"{avg:.2f}")
 
     # ---------------- FILTER ----------------
     st.subheader("🔍 Filters")
@@ -169,22 +175,37 @@ if files:
             fig = px.histogram(df, x=num_cols[0])
             st.plotly_chart(fig, use_container_width=True)
 
-    # ---------------- AI TOOL ----------------
-    elif section == "AI Tool":
-        q = st.text_input("Ask your data")
-        if q:
-            if AI_AVAILABLE:
-                sample = df.head(50).to_csv(index=False)
-                res = client.chat.completions.create(
-                    model="gpt-4o-mini",
-                    messages=[
-                        {"role":"system","content":"You are data analyst"},
-                        {"role":"user","content":f"{sample}\n\n{q}"}
-                    ]
-                )
-                st.write(res.choices[0].message.content)
+    # ---------------- SALES ----------------
+    elif section == "Sales":
+        st.subheader("📊 Sales Trends")
+
+        if date_cols and num_cols:
+            date_col = st.selectbox("Date Column", date_cols)
+            value_col = st.selectbox("Sales Column", num_cols)
+
+            df["year"] = df[date_col].dt.year
+            df["month"] = df[date_col].dt.month
+            df["week"] = df[date_col].dt.isocalendar().week
+            df["quarter"] = df[date_col].dt.quarter
+
+            view = st.radio("Trend Type", ["Weekly", "Monthly", "Quarterly", "Yearly"], horizontal=True)
+
+            if view == "Weekly":
+                g = df.groupby("week")[value_col].sum().reset_index()
+            elif view == "Monthly":
+                g = df.groupby("month")[value_col].sum().reset_index()
+            elif view == "Quarterly":
+                g = df.groupby("quarter")[value_col].sum().reset_index()
             else:
-                st.warning("AI not configured")
+                g = df.groupby("year")[value_col].sum().reset_index()
+
+            fig = px.line(g, x=g.columns[0], y=value_col, title="Sales Trend")
+            st.plotly_chart(fig, use_container_width=True)
+
+            # Growth
+            g["growth_%"] = g[value_col].pct_change() * 100
+            st.subheader("📈 Growth (WoW / MoM)")
+            st.dataframe(g)
 
     # ---------------- MAP ----------------
     elif section == "Maps":
@@ -197,6 +218,11 @@ if files:
             st.plotly_chart(fig)
         else:
             st.warning("No lat/lon columns")
+
+    # ---------------- COLOR TABLE ----------------
+    st.subheader("🎨 Highlight Data")
+    if num_cols:
+        st.dataframe(df.style.background_gradient(cmap="Blues"))
 
     # ---------------- EXPORT ----------------
     st.subheader("📥 Export")
@@ -228,9 +254,8 @@ else:
     render_lottie(lottie_data, 300)
     st.info("👈 Upload files to start")
 
-
 # ---------------- FOOTER ----------------
 st.markdown("""
 <hr>
-<p style='text-align:center;'>© 2026 SNK AI Platform | Built by SNK</p>
+<p style='text-align:center;'>🚀 SNK Data Platform | Advanced Analytics Dashboard</p>
 """, unsafe_allow_html=True)
