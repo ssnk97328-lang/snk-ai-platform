@@ -124,37 +124,56 @@ if files:
     if num_cols:
         c3.metric("Total Value", f"{df[num_cols].sum().sum():,.0f}")
 
-    # ---------------- GLOBAL SLICER ----------------
+    # ---------------- SLICER ----------------
     st.subheader("🎯 Dashboard Slicer")
 
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2 = st.columns(2)
 
-    x_axis = col1.selectbox("X Axis", df.columns)
-    y_axis = col2.selectbox("Y Axis", num_cols if num_cols else df.columns)
+    x_axis = col1.selectbox("X Axis (Category)", df.columns)
+    y_axis = col2.selectbox("Y Axis (Numeric)", num_cols if num_cols else df.columns)
 
-    row_field = col3.selectbox("Row (Group)", cat_cols if cat_cols else df.columns)
-    value_field = col4.selectbox("Value", num_cols if num_cols else df.columns)
+    # ---------------- DATA PREP ----------------
+    def prepare_chart_data(df, x_axis, y_axis):
+        try:
+            g = (
+                df.groupby(x_axis)[y_axis]
+                .sum()
+                .reset_index()
+                .sort_values(by=y_axis, ascending=False)
+                .head(10)
+            )
+            return g
+        except:
+            return df.head(50)
 
-    # ---------------- PIVOT ----------------
-    try:
-        pivot_df = df.groupby(row_field)[value_field].sum().reset_index()
-        pivot_df = pivot_df.sort_values(by=value_field, ascending=False).head(10)
-    except:
-        pivot_df = df.copy()
+    chart_df = prepare_chart_data(df, x_axis, y_axis)
 
     # ---------------- DASHBOARD ----------------
     def render_dashboard():
 
-        st.markdown("### 📊 Dashboard")
+        st.markdown("### 📊 Dynamic Dashboard")
 
         c1, c2 = st.columns(2)
 
-        c1.plotly_chart(px.bar(pivot_df, x=row_field, y=value_field), use_container_width=True)
-        c2.plotly_chart(px.pie(pivot_df, names=row_field, values=value_field), use_container_width=True)
+        # BAR
+        try:
+            c1.plotly_chart(px.bar(chart_df, x=x_axis, y=y_axis), use_container_width=True)
+        except:
+            c1.warning("Bar chart not available")
 
-        st.plotly_chart(px.line(df, y=y_axis), use_container_width=True)
+        # PIE
+        try:
+            c2.plotly_chart(px.pie(chart_df, names=x_axis, values=y_axis), use_container_width=True)
+        except:
+            c2.warning("Pie chart not available")
 
-        st.dataframe(pivot_df, use_container_width=True)
+        # LINE
+        try:
+            st.plotly_chart(px.line(chart_df, x=x_axis, y=y_axis), use_container_width=True)
+        except:
+            st.warning("Line chart not available")
+
+        st.dataframe(chart_df, use_container_width=True)
 
     # ---------------- SECTIONS ----------------
     if section == "All View":
@@ -169,8 +188,8 @@ if files:
 
     elif section == "AI Tool":
         st.subheader("🤖 AI Tool")
-        q = st.text_input("Ask your data")
 
+        q = st.text_input("Ask your data")
         if q and AI_AVAILABLE:
             sample = df.head(50).to_csv(index=False)
             res = client.chat.completions.create(
