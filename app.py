@@ -1,4 +1,4 @@
-import streamlit as st 
+import streamlit as st
 import pandas as pd
 import plotly.express as px
 from io import BytesIO
@@ -63,12 +63,6 @@ section = st.radio(
 st.markdown("""
 <style>
 .stApp {background: linear-gradient(135deg,#0f2027,#203a43,#2c5364); color:white;}
-.card {
-    background: rgba(255,255,255,0.05);
-    padding: 20px;
-    border-radius: 15px;
-    margin-top: 20px;
-}
 </style>
 """, unsafe_allow_html=True)
 
@@ -89,20 +83,23 @@ if files:
 
     df = pd.concat(dfs, ignore_index=True)
 
-    # CLEAN
-    df.columns = [c.strip().lower().replace(" ","_") for c in df.columns]
+    # CLEAN COLUMN NAMES
+    df.columns = [c.strip().lower().replace(" ", "_") for c in df.columns]
 
+    # TRY CONVERTING NUMBERS
     for col in df.columns:
-        try:
-            df[col] = df[col].astype(str).str.replace(",", "")
-            df[col] = pd.to_numeric(df[col], errors="coerce")
-        except:
-            pass
+        df[col] = df[col].astype(str).str.replace(",", "")
+        df[col] = pd.to_numeric(df[col], errors="ignore")
 
-    df = df.fillna("Unknown").drop_duplicates()
-
+    # DETECT TYPES AFTER CLEAN
     num_cols = df.select_dtypes(include=np.number).columns.tolist()
     cat_cols = df.select_dtypes(exclude=np.number).columns.tolist()
+
+    # FILL ONLY CATEGORICAL
+    df[cat_cols] = df[cat_cols].fillna("Unknown")
+
+    # KEEP NUMERIC CLEAN (NO "Unknown")
+    df = df.drop_duplicates()
 
     # ---------------- GLOBAL FILTER ----------------
     st.subheader("🔍 Global Filters")
@@ -129,21 +126,23 @@ if files:
 
     col1, col2 = st.columns(2)
 
-    x_axis = col1.selectbox("X Axis (Category)", df.columns)
-    y_axis = col2.selectbox("Y Axis (Numeric)", num_cols if num_cols else df.columns)
+    # 🔥 FIXED HERE
+    x_axis = col1.selectbox("X Axis (Category)", cat_cols)
+    y_axis = col2.selectbox("Y Axis (Numeric)", num_cols)
 
     # ---------------- DATA PREP ----------------
     def prepare_chart_data(df, x_axis, y_axis):
         try:
             g = (
-                df.groupby(x_axis)[y_axis]
+                df.groupby(x_axis, dropna=False)[y_axis]
                 .sum()
                 .reset_index()
                 .sort_values(by=y_axis, ascending=False)
-                .head(10)
+                .head(20)
             )
             return g
-        except:
+        except Exception as e:
+            st.error(f"Chart Error: {e}")
             return df.head(50)
 
     chart_df = prepare_chart_data(df, x_axis, y_axis)
@@ -156,22 +155,13 @@ if files:
         c1, c2 = st.columns(2)
 
         # BAR
-        try:
-            c1.plotly_chart(px.bar(chart_df, x=x_axis, y=y_axis), use_container_width=True)
-        except:
-            c1.warning("Bar chart not available")
+        c1.plotly_chart(px.bar(chart_df, x=x_axis, y=y_axis), use_container_width=True)
 
         # PIE
-        try:
-            c2.plotly_chart(px.pie(chart_df, names=x_axis, values=y_axis), use_container_width=True)
-        except:
-            c2.warning("Pie chart not available")
+        c2.plotly_chart(px.pie(chart_df, names=x_axis, values=y_axis), use_container_width=True)
 
         # LINE
-        try:
-            st.plotly_chart(px.line(chart_df, x=x_axis, y=y_axis), use_container_width=True)
-        except:
-            st.warning("Line chart not available")
+        st.plotly_chart(px.line(chart_df, x=x_axis, y=y_axis), use_container_width=True)
 
         st.dataframe(chart_df, use_container_width=True)
 
@@ -194,7 +184,7 @@ if files:
             sample = df.head(50).to_csv(index=False)
             res = client.chat.completions.create(
                 model="gpt-4o-mini",
-                messages=[{"role":"user","content":sample+"\n"+q}]
+                messages=[{"role": "user", "content": sample + "\n" + q}]
             )
             st.write(res.choices[0].message.content)
 
@@ -224,7 +214,7 @@ if files:
 
     if num_cols and cat_cols:
         top = df[cat_cols[0]].value_counts().idxmax()
-        pct = round(df[cat_cols[0]].value_counts(normalize=True).max()*100,2)
+        pct = round(df[cat_cols[0]].value_counts(normalize=True).max()*100, 2)
         st.write(f"🔹 {top} contributes {pct}%")
 
     # ---------------- FORECAST ----------------
@@ -255,7 +245,7 @@ if files:
 
         story = [
             Paragraph("SNK Dashboard Report", styles["Title"]),
-            Spacer(1,20),
+            Spacer(1, 20),
             Paragraph(f"Rows: {len(df)}", styles["Normal"]),
             Paragraph(f"Columns: {len(df.columns)}", styles["Normal"])
         ]
