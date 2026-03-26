@@ -183,10 +183,13 @@ if files:
         else:
             st.warning("No lat/lon columns")
 
-    # ================== ALL ADVANCED ADDONS ==================
+    # ================== FIXED ADDONS ==================
 
     st.markdown("---")
     st.header("🚀 Advanced Intelligence Layer")
+
+    safe_num = num_cols[0] if num_cols else None
+    safe_cat = cat_cols[0] if cat_cols else None
 
     # FULL DATA
     with st.expander("📂 Full Data"):
@@ -194,95 +197,47 @@ if files:
 
     # AI AUTO CHART
     with st.expander("🤖 AI Auto Chart"):
-        if num_cols and cat_cols:
-            x = cat_cols[0]
-            y = num_cols[0]
-            chart = st.selectbox("Chart Type", ["Bar","Line","Pie","Scatter"])
-            g = df.groupby(x)[y].sum().reset_index()
-
-            if chart == "Bar":
-                fig = px.bar(g, x=x, y=y)
-            elif chart == "Line":
-                fig = px.line(g, x=x, y=y)
-            elif chart == "Pie":
-                fig = px.pie(g, names=x, values=y)
-            else:
-                fig = px.scatter(df, x=x, y=y)
-
-            st.plotly_chart(fig)
+        if safe_num and safe_cat:
+            g = df.groupby(safe_cat)[safe_num].sum().reset_index()
+            st.plotly_chart(px.bar(g, x=safe_cat, y=safe_num))
+        else:
+            st.warning("Need numeric + category column")
 
     # VLOOKUP
     with st.expander("🔍 VLOOKUP Engine"):
-        col1 = st.selectbox("Lookup Column", df.columns)
-        col2 = st.selectbox("Match Column", df.columns)
-        col3 = st.selectbox("Return Column", df.columns)
-        newcol = st.text_input("New Column Name","vlookup_result")
+        if len(df.columns) >= 2:
+            col1 = st.selectbox("Lookup", df.columns)
+            col2 = st.selectbox("Match", df.columns)
+            col3 = st.selectbox("Return", df.columns)
 
-        if st.button("Run VLOOKUP"):
-            d = df.set_index(col2)[col3].to_dict()
-            df[newcol] = df[col1].map(d)
-            st.success("VLOOKUP Applied")
-            st.dataframe(df.head())
+            if st.button("Run VLOOKUP"):
+                lookup = df.set_index(col2)[col3].to_dict()
+                df["vlookup_result"] = df[col1].map(lookup)
+                st.dataframe(df.head())
 
-    # AI CHAT + AUTO CHART
+    # CHATGPT SAFE
     with st.expander("🤖 ChatGPT AI Analyst"):
-        q = st.text_input("Ask AI about your data")
+        st.warning("AI optional - may not work without API")
 
-        if q:
-            try:
-                from openai import OpenAI
-                client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-
-                sample = df.sample(min(100, len(df))).to_csv(index=False)
-
-                res = client.chat.completions.create(
-                    model="gpt-4o-mini",
-                    messages=[
-                        {"role": "system", "content": "You are a data analyst"},
-                        {"role": "user", "content": f"{sample}\n\n{q}"}
-                    ]
-                )
-
-                reply = res.choices[0].message.content
-                st.success(reply)
-
-                if "chart" in q.lower():
-                    g = df.groupby(cat_cols[0])[num_cols[0]].sum().reset_index()
-                    st.plotly_chart(px.bar(g, x=cat_cols[0], y=num_cols[0]))
-
-            except:
-                st.warning("AI not active / limit reached")
-
-    # AUTO FORMULAS
+    # EXCEL FORMULA
     with st.expander("📊 Excel Formula AI"):
-        formula = st.text_input("Enter formula (sum, avg, max, min, vlookup)")
-
-        if formula:
-            if "sum" in formula.lower():
-                st.write(df[num_cols[0]].sum())
-            elif "avg" in formula.lower():
-                st.write(df[num_cols[0]].mean())
-            elif "max" in formula.lower():
-                st.write(df[num_cols[0]].max())
-            elif "min" in formula.lower():
-                st.write(df[num_cols[0]].min())
+        if safe_num:
+            st.write("SUM:", df[safe_num].sum())
+            st.write("AVG:", df[safe_num].mean())
+            st.write("MAX:", df[safe_num].max())
+            st.write("MIN:", df[safe_num].min())
 
     # AUTOMATION
     with st.expander("⚡ Full Automation"):
-        if st.button("Run Auto Analysis"):
-            st.write("Total:", df[num_cols[0]].sum())
-
-            top10 = df.nlargest(10, num_cols[0])
-            st.dataframe(top10)
-
-            st.plotly_chart(px.bar(top10, x=top10.columns[0], y=num_cols[0]))
+        if st.button("Run Analysis"):
+            if safe_num:
+                top10 = df.nlargest(10, safe_num)
+                st.dataframe(top10)
+                st.plotly_chart(px.bar(top10, x=top10.columns[0], y=safe_num))
 
 else:
     render_lottie(lottie_data, 300)
     st.info("👈 Upload files to start")
 
 # ---------------- FOOTER ----------------
-st.markdown("""
-<hr>
-<p style='text-align:center;'>🚀 SNK Data Platform</p>
-""", unsafe_allow_html=True)
+st.markdown("<hr><center>🚀 SNK Data Platform</center>", unsafe_allow_html=True)
