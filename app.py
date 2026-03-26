@@ -10,6 +10,14 @@ import os
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet
 
+# OPTIONAL AI
+try:
+    from openai import OpenAI
+    client = OpenAI()
+    AI_AVAILABLE = True
+except:
+    AI_AVAILABLE = False
+
 # ---------------- CONFIG ----------------
 st.set_page_config(page_title="SNK AI Platform", layout="wide", page_icon="📊")
 
@@ -39,25 +47,6 @@ if not st.session_state.login:
     login()
     st.stop()
 
-# ---------------- LOTTIE ----------------
-def load_lottieurl(url):
-    try:
-        r = requests.get(url, timeout=5)
-        if r.status_code == 200:
-            return r.json()
-    except:
-        return None
-
-def render_lottie(data, height=200):
-    try:
-        from streamlit_lottie import st_lottie
-        if data:
-            st_lottie(data, height=height)
-    except:
-        pass
-
-lottie_data = load_lottieurl("https://assets5.lottiefiles.com/packages/lf20_fcfjwiyb.json")
-
 # ---------------- SIDEBAR ----------------
 st.sidebar.title("🚀 SNK Platform")
 theme = st.sidebar.toggle("🌗 Dark Mode", True)
@@ -79,6 +68,12 @@ if theme:
     st.markdown("""
     <style>
     .stApp {background: linear-gradient(135deg,#0f2027,#203a43,#2c5364); color:white;}
+    .card {
+        background: rgba(255,255,255,0.05);
+        padding: 20px;
+        border-radius: 15px;
+        margin-top: 20px;
+    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -101,41 +96,23 @@ if files:
 
         df = pd.concat(dfs, ignore_index=True)
 
-    # CLEAN
+    # CLEANING
     df.columns = [c.strip().lower().replace(" ", "_") for c in df.columns]
-    df = df.fillna("Unknown").drop_duplicates()
+    df = df.loc[:, ~df.columns.str.contains("^unnamed")]
 
-    # ADVANCED CLEAN
     for col in df.columns:
         try:
             df[col] = df[col].astype(str).str.replace(",", "").str.strip()
-            df[col] = pd.to_numeric(df[col], errors="ignore")
+            df[col] = pd.to_numeric(df[col], errors="coerce")
         except:
             pass
 
-    date_cols = []
-    for col in df.columns:
-        try:
-            df[col] = pd.to_datetime(df[col])
-            date_cols.append(col)
-        except:
-            pass
+    before_rows = df.shape[0]
+    df = df.fillna("Unknown").drop_duplicates()
+    removed_rows = before_rows - df.shape[0]
 
-    num_cols = df.select_dtypes(include="number").columns.tolist()
-    cat_cols = df.select_dtypes(exclude="number").columns.tolist()
-
-    # ---------------- KPI ----------------
-    st.subheader("📊 Advanced KPIs")
-    c1, c2, c3, c4 = st.columns(4)
-
-    c1.metric("Total Records", len(df))
-    c2.metric("Columns", len(df.columns))
-
-    if num_cols:
-        total = df[num_cols].sum().sum()
-        avg = df[num_cols].mean().mean()
-        c3.metric("Total Value", f"{total:,.0f}")
-        c4.metric("Avg Value", f"{avg:.2f}")
+    num_cols = df.select_dtypes(include=np.number).columns.tolist()
+    cat_cols = df.select_dtypes(exclude=np.number).columns.tolist()
 
     # ---------------- FILTER ----------------
     st.subheader("🔍 Filters")
@@ -146,141 +123,145 @@ if files:
         if val != "All":
             df = df[df[col].astype(str) == val]
 
+    # ---------------- KPI ----------------
+    st.subheader("📊 KPIs")
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Total Records", len(df))
+    c2.metric("Columns", len(df.columns))
+    if num_cols:
+        c3.metric("Total Value", f"{df[num_cols].sum().sum():,.0f}")
+
     # ---------------- ALL VIEW ----------------
     if section == "All View":
         st.dataframe(df.head(200), use_container_width=True)
 
     # ---------------- DASHBOARD ----------------
     elif section == "Dashboard":
+        st.markdown('<div class="card">', unsafe_allow_html=True)
 
-        st.subheader("📊 Interactive Dashboard")
+        if cat_cols and num_cols:
+            x = st.selectbox("Category", cat_cols)
+            y = st.selectbox("Value", num_cols)
 
-        # ✅ NEW: USER CONTROLLED CHART
-        if len(df.columns) > 1 and num_cols:
-            col1, col2 = st.columns(2)
+            g = df.groupby(x)[y].sum().reset_index().sort_values(by=y, ascending=False).head(10)
 
-            x_axis = col1.selectbox("Select X-axis", df.columns)
-            y_axis = col2.selectbox("Select Y-axis", num_cols)
-
-            chart_type = st.selectbox(
-                "Select Chart Type",
-                ["Bar Chart", "Line Chart", "Scatter Plot", "Histogram"]
-            )
-
-            if chart_type == "Bar Chart":
-                fig = px.bar(df, x=x_axis, y=y_axis)
-            elif chart_type == "Line Chart":
-                fig = px.line(df, x=x_axis, y=y_axis)
-            elif chart_type == "Scatter Plot":
-                fig = px.scatter(df, x=x_axis, y=y_axis)
-            else:
-                fig = px.histogram(df, x=x_axis)
-
-            # ✅ FIX VISIBILITY
-            fig.update_layout(
-                paper_bgcolor='rgba(0,0,0,0)',
-                plot_bgcolor='rgba(0,0,0,0)'
-            )
-
+            st.subheader("📊 Top 10 Dashboard")
+            fig = px.bar(g, x=x, y=y, color=x, text_auto=True)
             st.plotly_chart(fig, use_container_width=True)
+            st.dataframe(g)
+
         else:
-            st.warning("Not enough columns for visualization")
+            st.warning("Need numeric + category")
+
+        st.markdown('</div>', unsafe_allow_html=True)
 
     # ---------------- SALES ----------------
     elif section == "Sales":
-        st.subheader("📊 Sales Trends")
-
-        # ✅ SIMPLE AUTO CHART
         if num_cols:
-            fig = px.line(df, y=num_cols[0])
-            fig.update_layout(paper_bgcolor='rgba(0,0,0,0)')
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(px.line(df, y=num_cols[0]), use_container_width=True)
 
     # ---------------- AI TOOL ----------------
     elif section == "AI Tool":
         st.subheader("🤖 AI Data Chat")
+        q = st.text_input("Ask your data")
+        if q and AI_AVAILABLE:
+            sample = df.head(50).to_csv(index=False)
+            res = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[{"role":"user","content":sample+"\n"+q}]
+            )
+            st.write(res.choices[0].message.content)
 
     # ---------------- MAP ----------------
     elif section == "Maps":
         lat = [c for c in df.columns if "lat" in c]
         lon = [c for c in df.columns if "lon" in c]
-
         if lat and lon:
-            try:
-                df[lat[0]] = pd.to_numeric(df[lat[0]], errors='coerce')
-                df[lon[0]] = pd.to_numeric(df[lon[0]], errors='coerce')
-                map_df = df.dropna(subset=[lat[0], lon[0]])
+            fig = px.scatter_mapbox(df, lat=lat[0], lon=lon[0], zoom=5)
+            fig.update_layout(mapbox_style="open-street-map")
+            st.plotly_chart(fig)
 
-                fig = px.scatter_mapbox(map_df, lat=lat[0], lon=lon[0], zoom=3)
-                fig.update_layout(mapbox_style="open-street-map")
-                st.plotly_chart(fig)
-            except:
-                st.error("Map error")
-        else:
-            st.warning("No lat/lon columns")
+    # ---------------- ANOMALY ----------------
+    st.subheader("🚨 Anomaly Detection")
+    if num_cols:
+        col = st.selectbox("Column", num_cols)
+        Q1, Q3 = df[col].quantile(0.25), df[col].quantile(0.75)
+        IQR = Q3 - Q1
+        outliers = df[(df[col] < Q1 - 1.5*IQR) | (df[col] > Q3 + 1.5*IQR)]
+        st.write("Outliers:", len(outliers))
+        st.dataframe(outliers.head(100))
 
-    # ================== FIXED ADDONS ==================
-
+    # ================= POWER BI DASHBOARD =================
     st.markdown("---")
-    st.header("🚀 Advanced Intelligence Layer")
+    st.header("📊 Power BI Style Dashboard")
 
-    safe_num = num_cols[0] if num_cols else None
-    safe_cat = cat_cols[0] if cat_cols else None
+    if num_cols and cat_cols:
+        k1,k2,k3,k4 = st.columns(4)
+        k1.metric("Total", f"{df[num_cols].sum().sum():,.0f}")
+        k2.metric("Avg", f"{df[num_cols].mean().mean():.2f}")
+        k3.metric("Rows", len(df))
+        k4.metric("Cols", len(df.columns))
 
-    # FULL DATA
-    with st.expander("📂 Full Data"):
-        st.dataframe(df, use_container_width=True)
+        x, y = cat_cols[0], num_cols[0]
+        g = df.groupby(x)[y].sum().reset_index().sort_values(by=y, ascending=False).head(10)
 
-    # AI AUTO CHART (IMPROVED)
-    with st.expander("🤖 AI Auto Chart"):
-        if safe_num and safe_cat:
-            g = df.groupby(safe_cat)[safe_num].sum().reset_index().sort_values(by=safe_num, ascending=False).head(20)
+        cA, cB = st.columns(2)
+        cA.plotly_chart(px.bar(g, x=x, y=y), use_container_width=True)
+        cB.plotly_chart(px.pie(g, names=x, values=y), use_container_width=True)
 
-            fig = px.bar(g, x=safe_cat, y=safe_num, title="Top Categories")
+        st.plotly_chart(px.line(df, y=y), use_container_width=True)
 
-            fig.update_layout(
-                paper_bgcolor='rgba(0,0,0,0)',
-                plot_bgcolor='rgba(0,0,0,0)'
-            )
+    # ================= AUTO INSIGHTS =================
+    st.markdown("---")
+    st.header("🤖 Auto Insights")
 
-            st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.warning("Need numeric + category column")
+    if num_cols and cat_cols:
+        top = df[cat_cols[0]].value_counts().idxmax()
+        pct = round(df[cat_cols[0]].value_counts(normalize=True).max()*100,2)
+        st.write(f"🔹 {top} contributes {pct}%")
 
-    # VLOOKUP
-    with st.expander("🔍 VLOOKUP Engine"):
-        if len(df.columns) >= 2:
-            col1 = st.selectbox("Lookup", df.columns)
-            col2 = st.selectbox("Match", df.columns)
-            col3 = st.selectbox("Return", df.columns)
+        st.write(f"🔹 Max {num_cols[0]} = {df[num_cols[0]].max()}")
+        st.write(f"🔹 Min {num_cols[0]} = {df[num_cols[0]].min()}")
 
-            if st.button("Run VLOOKUP"):
-                lookup = df.set_index(col2)[col3].to_dict()
-                df["vlookup_result"] = df[col1].map(lookup)
-                st.dataframe(df.head())
+    # ================= FORECAST =================
+    st.markdown("---")
+    st.header("📈 Forecasting")
 
-    # CHATGPT SAFE
-    with st.expander("🤖 ChatGPT AI Analyst"):
-        st.warning("AI optional - may not work without API")
+    if num_cols:
+        col = num_cols[0]
+        dff = df[[col]].dropna().reset_index()
+        z = np.polyfit(dff.index, dff[col], 1)
+        p = np.poly1d(z)
 
-    # EXCEL FORMULA
-    with st.expander("📊 Excel Formula AI"):
-        if safe_num:
-            st.write("SUM:", df[safe_num].sum())
-            st.write("AVG:", df[safe_num].mean())
-            st.write("MAX:", df[safe_num].max())
-            st.write("MIN:", df[safe_num].min())
+        future = pd.DataFrame({
+            "index": range(len(dff), len(dff)+10),
+            col: p(range(len(dff), len(dff)+10))
+        })
 
-    # AUTOMATION
-    with st.expander("⚡ Full Automation"):
-        if st.button("Run Analysis"):
-            if safe_num:
-                top10 = df.nlargest(10, safe_num)
-                st.dataframe(top10)
-                st.plotly_chart(px.bar(top10, x=top10.columns[0], y=safe_num))
+        full = pd.concat([dff, future])
+        st.plotly_chart(px.line(full, x="index", y=col), use_container_width=True)
+
+    # ================= PDF =================
+    st.markdown("---")
+    st.header("📥 Download PDF")
+
+    def create_pdf():
+        buffer = BytesIO()
+        doc = SimpleDocTemplate(buffer)
+        styles = getSampleStyleSheet()
+        story = [
+            Paragraph("SNK Dashboard Report", styles["Title"]),
+            Spacer(1,20),
+            Paragraph(f"Rows: {len(df)}", styles["Normal"]),
+            Paragraph(f"Columns: {len(df.columns)}", styles["Normal"])
+        ]
+        doc.build(story)
+        buffer.seek(0)
+        return buffer
+
+    st.download_button("Download PDF", create_pdf())
 
 else:
-    render_lottie(lottie_data, 300)
     st.info("👈 Upload files to start")
 
 # ---------------- FOOTER ----------------
