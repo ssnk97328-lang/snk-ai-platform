@@ -108,7 +108,8 @@ if files:
     # ADVANCED CLEAN
     for col in df.columns:
         try:
-            df[col] = pd.to_numeric(df[col])
+            df[col] = df[col].astype(str).str.replace(",", "").str.strip()
+            df[col] = pd.to_numeric(df[col], errors="ignore")
         except:
             pass
 
@@ -149,26 +150,6 @@ if files:
     if section == "All View":
         st.dataframe(df.head(200), use_container_width=True)
 
-        if cat_cols and num_cols:
-            x = st.selectbox("Category", cat_cols)
-            y = st.selectbox("Value", num_cols)
-            chart = st.selectbox("Chart", ["Bar","Pie","Line","Scatter","Histogram"])
-
-            g = df.groupby(x)[y].sum().reset_index()
-
-            if chart == "Bar":
-                fig = px.bar(g, x=x, y=y)
-            elif chart == "Pie":
-                fig = px.pie(g, names=x, values=y)
-            elif chart == "Line":
-                fig = px.line(g, x=x, y=y)
-            elif chart == "Scatter":
-                fig = px.scatter(df, x=x, y=y)
-            else:
-                fig = px.histogram(df, x=y)
-
-            st.plotly_chart(fig, use_container_width=True)
-
     # ---------------- DASHBOARD ----------------
     elif section == "Dashboard":
         if num_cols:
@@ -179,52 +160,75 @@ if files:
     elif section == "Sales":
         st.subheader("📊 Sales Trends")
 
-        if date_cols and num_cols:
-            date_col = st.selectbox("Date Column", date_cols)
-            value_col = st.selectbox("Sales Column", num_cols)
-
-            df["year"] = df[date_col].dt.year
-            df["month"] = df[date_col].dt.month
-            df["week"] = df[date_col].dt.isocalendar().week
-            df["quarter"] = df[date_col].dt.quarter
-
-            view = st.radio("Trend Type", ["Weekly", "Monthly", "Quarterly", "Yearly"], horizontal=True)
-
-            if view == "Weekly":
-                g = df.groupby("week")[value_col].sum().reset_index()
-            elif view == "Monthly":
-                g = df.groupby("month")[value_col].sum().reset_index()
-            elif view == "Quarterly":
-                g = df.groupby("quarter")[value_col].sum().reset_index()
-            else:
-                g = df.groupby("year")[value_col].sum().reset_index()
-
-            fig = px.line(g, x=g.columns[0], y=value_col, title="Sales Trend")
-            st.plotly_chart(fig, use_container_width=True)
-
-            g["growth_%"] = g[value_col].pct_change() * 100
-            st.subheader("📈 Growth (WoW / MoM)")
-            st.dataframe(g)
-
     # ---------------- AI TOOL ----------------
     elif section == "AI Tool":
         st.subheader("🤖 AI Data Chat")
 
-        if "chat_history" not in st.session_state:
-            st.session_state.chat_history = []
+    # ---------------- MAP ----------------
+    elif section == "Maps":
+        lat = [c for c in df.columns if "lat" in c]
+        lon = [c for c in df.columns if "lon" in c]
 
-        for chat in st.session_state.chat_history:
-            with st.chat_message(chat["role"]):
-                st.write(chat["content"])
+        if lat and lon:
+            try:
+                df[lat[0]] = pd.to_numeric(df[lat[0]], errors='coerce')
+                df[lon[0]] = pd.to_numeric(df[lon[0]], errors='coerce')
+                map_df = df.dropna(subset=[lat[0], lon[0]])
 
-        user_input = st.chat_input("Ask about your data...")
+                fig = px.scatter_mapbox(map_df, lat=lat[0], lon=lon[0], zoom=3)
+                fig.update_layout(mapbox_style="open-street-map")
+                st.plotly_chart(fig)
+            except:
+                st.error("Map error")
+        else:
+            st.warning("No lat/lon columns")
 
-        if user_input:
-            st.session_state.chat_history.append({"role": "user", "content": user_input})
+    # ================== ALL ADVANCED ADDONS ==================
 
-            with st.chat_message("user"):
-                st.write(user_input)
+    st.markdown("---")
+    st.header("🚀 Advanced Intelligence Layer")
 
+    # FULL DATA
+    with st.expander("📂 Full Data"):
+        st.dataframe(df, use_container_width=True)
+
+    # AI AUTO CHART
+    with st.expander("🤖 AI Auto Chart"):
+        if num_cols and cat_cols:
+            x = cat_cols[0]
+            y = num_cols[0]
+            chart = st.selectbox("Chart Type", ["Bar","Line","Pie","Scatter"])
+            g = df.groupby(x)[y].sum().reset_index()
+
+            if chart == "Bar":
+                fig = px.bar(g, x=x, y=y)
+            elif chart == "Line":
+                fig = px.line(g, x=x, y=y)
+            elif chart == "Pie":
+                fig = px.pie(g, names=x, values=y)
+            else:
+                fig = px.scatter(df, x=x, y=y)
+
+            st.plotly_chart(fig)
+
+    # VLOOKUP
+    with st.expander("🔍 VLOOKUP Engine"):
+        col1 = st.selectbox("Lookup Column", df.columns)
+        col2 = st.selectbox("Match Column", df.columns)
+        col3 = st.selectbox("Return Column", df.columns)
+        newcol = st.text_input("New Column Name","vlookup_result")
+
+        if st.button("Run VLOOKUP"):
+            d = df.set_index(col2)[col3].to_dict()
+            df[newcol] = df[col1].map(d)
+            st.success("VLOOKUP Applied")
+            st.dataframe(df.head())
+
+    # AI CHAT + AUTO CHART
+    with st.expander("🤖 ChatGPT AI Analyst"):
+        q = st.text_input("Ask AI about your data")
+
+        if q:
             try:
                 from openai import OpenAI
                 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
@@ -234,98 +238,44 @@ if files:
                 res = client.chat.completions.create(
                     model="gpt-4o-mini",
                     messages=[
-                        {"role": "system", "content": "You are a data analyst."},
-                        {"role": "user", "content": f"{sample}\n\n{user_input}"}
+                        {"role": "system", "content": "You are a data analyst"},
+                        {"role": "user", "content": f"{sample}\n\n{q}"}
                     ]
                 )
 
                 reply = res.choices[0].message.content
+                st.success(reply)
+
+                if "chart" in q.lower():
+                    g = df.groupby(cat_cols[0])[num_cols[0]].sum().reset_index()
+                    st.plotly_chart(px.bar(g, x=cat_cols[0], y=num_cols[0]))
 
             except:
-                if "total" in user_input.lower() and num_cols:
-                    col = num_cols[0]
-                    reply = f"Total of {col}: {df[col].sum()}"
-                elif "average" in user_input.lower() and num_cols:
-                    col = num_cols[0]
-                    reply = f"Average of {col}: {df[col].mean():.2f}"
-                else:
-                    reply = "⚠️ AI not active. Showing basic insights.\n\n" + str(df.describe())
+                st.warning("AI not active / limit reached")
 
-            st.session_state.chat_history.append({"role": "assistant", "content": reply})
+    # AUTO FORMULAS
+    with st.expander("📊 Excel Formula AI"):
+        formula = st.text_input("Enter formula (sum, avg, max, min, vlookup)")
 
-            with st.chat_message("assistant"):
-                st.write(reply)
+        if formula:
+            if "sum" in formula.lower():
+                st.write(df[num_cols[0]].sum())
+            elif "avg" in formula.lower():
+                st.write(df[num_cols[0]].mean())
+            elif "max" in formula.lower():
+                st.write(df[num_cols[0]].max())
+            elif "min" in formula.lower():
+                st.write(df[num_cols[0]].min())
 
-    # ---------------- MAP ----------------
-    elif section == "Maps":
-        lat = [c for c in df.columns if "lat" in c]
-        lon = [c for c in df.columns if "lon" in c]
+    # AUTOMATION
+    with st.expander("⚡ Full Automation"):
+        if st.button("Run Auto Analysis"):
+            st.write("Total:", df[num_cols[0]].sum())
 
-        if lat and lon:
-            fig = px.scatter_mapbox(df, lat=lat[0], lon=lon[0], zoom=4)
-            fig.update_layout(mapbox_style="open-street-map")
-            st.plotly_chart(fig)
-        else:
-            st.warning("No lat/lon columns")
+            top10 = df.nlargest(10, num_cols[0])
+            st.dataframe(top10)
 
-    # ---------------- COLOR TABLE ----------------
-    st.subheader("🎨 Highlight Data")
-    if num_cols:
-        st.dataframe(df.style.background_gradient(cmap="Blues"))
-
-    # ---------------- EXPORT ----------------
-    st.subheader("📥 Export")
-
-    st.download_button("Download CSV", df.to_csv(index=False))
-
-    out = BytesIO()
-    df.to_excel(out, index=False)
-    st.download_button("Download Excel", out.getvalue())
-
-    # PDF
-    report = f"Rows: {len(df)} | Columns: {len(df.columns)}"
-
-    def create_pdf(text):
-        buffer = BytesIO()
-        doc = SimpleDocTemplate(buffer)
-        styles = getSampleStyleSheet()
-        story = []
-        for line in text.split("\n"):
-            story.append(Paragraph(line, styles["Normal"]))
-            story.append(Spacer(1, 10))
-        doc.build(story)
-        buffer.seek(0)
-        return buffer
-
-    st.download_button("Download PDF", create_pdf(report))
-
-    # ================== ADD-ON FEATURES ==================
-
-    st.markdown("---")
-    st.header("🚀 Advanced Add-On Features")
-
-    with st.expander("📂 View Full Data (All Rows)"):
-        st.dataframe(df, use_container_width=True)
-
-    if len(num_cols) > 0:
-        with st.expander("🏆 Auto Top 10 Analysis"):
-            try:
-                main_col = num_cols[0]
-                top10 = df.nlargest(10, main_col)
-                st.dataframe(top10, use_container_width=True)
-                fig = px.bar(top10, x=top10.columns[0], y=main_col)
-                st.plotly_chart(fig, use_container_width=True)
-            except:
-                st.warning("Top 10 not available")
-
-    if len(cat_cols) > 0 and len(num_cols) > 0:
-        with st.expander("📊 Auto Chart"):
-            try:
-                g = df.groupby(cat_cols[0])[num_cols[0]].sum().reset_index()
-                fig = px.bar(g, x=cat_cols[0], y=num_cols[0])
-                st.plotly_chart(fig, use_container_width=True)
-            except:
-                st.warning("Chart not available")
+            st.plotly_chart(px.bar(top10, x=top10.columns[0], y=num_cols[0]))
 
 else:
     render_lottie(lottie_data, 300)
@@ -334,5 +284,5 @@ else:
 # ---------------- FOOTER ----------------
 st.markdown("""
 <hr>
-<p style='text-align:center;'>🚀 SNK Data Platform | Advanced Analytics Dashboard</p>
+<p style='text-align:center;'>🚀 SNK Data Platform</p>
 """, unsafe_allow_html=True)
