@@ -242,7 +242,6 @@ if files:
                 reply = res.choices[0].message.content
 
             except:
-                # Fallback
                 if "total" in user_input.lower() and num_cols:
                     col = num_cols[0]
                     reply = f"Total of {col}: {df[col].sum()}"
@@ -299,6 +298,34 @@ if files:
         return buffer
 
     st.download_button("Download PDF", create_pdf(report))
+
+    # ================== ADD-ON FEATURES ==================
+
+    st.markdown("---")
+    st.header("🚀 Advanced Add-On Features")
+
+    with st.expander("📂 View Full Data (All Rows)"):
+        st.dataframe(df, use_container_width=True)
+
+    if len(num_cols) > 0:
+        with st.expander("🏆 Auto Top 10 Analysis"):
+            try:
+                main_col = num_cols[0]
+                top10 = df.nlargest(10, main_col)
+                st.dataframe(top10, use_container_width=True)
+                fig = px.bar(top10, x=top10.columns[0], y=main_col)
+                st.plotly_chart(fig, use_container_width=True)
+            except:
+                st.warning("Top 10 not available")
+
+    if len(cat_cols) > 0 and len(num_cols) > 0:
+        with st.expander("📊 Auto Chart"):
+            try:
+                g = df.groupby(cat_cols[0])[num_cols[0]].sum().reset_index()
+                fig = px.bar(g, x=cat_cols[0], y=num_cols[0])
+                st.plotly_chart(fig, use_container_width=True)
+            except:
+                st.warning("Chart not available")
 
 else:
     render_lottie(lottie_data, 300)
