@@ -13,7 +13,7 @@ from reportlab.lib.styles import getSampleStyleSheet
 # ---------------- CONFIG ----------------
 st.set_page_config(page_title="SNK AI Platform", layout="wide", page_icon="📊")
 
-# ---------------- MULTI USER LOGIN ----------------
+# ---------------- LOGIN ----------------
 USERS = {
     os.getenv("APP_USER1", "admin"): os.getenv("APP_PASS1", "1234"),
     os.getenv("APP_USER2", "user"): os.getenv("APP_PASS2", "1111")
@@ -63,14 +63,14 @@ st.sidebar.title("🚀 SNK Platform")
 theme = st.sidebar.toggle("🌗 Dark Mode", True)
 
 files = st.sidebar.file_uploader(
-    "📂 Upload Files (Large Supported)",
+    "📂 Upload Files",
     type=["csv", "xlsx"],
     accept_multiple_files=True
 )
 
 section = st.radio(
     "Navigation",
-    ["All View", "Dashboard", "Sales", "Maps"],
+    ["All View", "Dashboard", "Sales", "AI Tool", "Maps"],
     horizontal=True
 )
 
@@ -105,7 +105,7 @@ if files:
     df.columns = [c.strip().lower().replace(" ", "_") for c in df.columns]
     df = df.fillna("Unknown").drop_duplicates()
 
-    # ADVANCED CLEANING
+    # ADVANCED CLEAN
     for col in df.columns:
         try:
             df[col] = pd.to_numeric(df[col])
@@ -202,10 +202,60 @@ if files:
             fig = px.line(g, x=g.columns[0], y=value_col, title="Sales Trend")
             st.plotly_chart(fig, use_container_width=True)
 
-            # Growth
             g["growth_%"] = g[value_col].pct_change() * 100
             st.subheader("📈 Growth (WoW / MoM)")
             st.dataframe(g)
+
+    # ---------------- AI TOOL ----------------
+    elif section == "AI Tool":
+        st.subheader("🤖 AI Data Chat")
+
+        if "chat_history" not in st.session_state:
+            st.session_state.chat_history = []
+
+        for chat in st.session_state.chat_history:
+            with st.chat_message(chat["role"]):
+                st.write(chat["content"])
+
+        user_input = st.chat_input("Ask about your data...")
+
+        if user_input:
+            st.session_state.chat_history.append({"role": "user", "content": user_input})
+
+            with st.chat_message("user"):
+                st.write(user_input)
+
+            try:
+                from openai import OpenAI
+                client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+                sample = df.sample(min(100, len(df))).to_csv(index=False)
+
+                res = client.chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=[
+                        {"role": "system", "content": "You are a data analyst."},
+                        {"role": "user", "content": f"{sample}\n\n{user_input}"}
+                    ]
+                )
+
+                reply = res.choices[0].message.content
+
+            except:
+                # Fallback
+                if "total" in user_input.lower() and num_cols:
+                    col = num_cols[0]
+                    reply = f"Total of {col}: {df[col].sum()}"
+                elif "average" in user_input.lower() and num_cols:
+                    col = num_cols[0]
+                    reply = f"Average of {col}: {df[col].mean():.2f}"
+                else:
+                    reply = "⚠️ AI not active. Showing basic insights.\n\n" + str(df.describe())
+
+            st.session_state.chat_history.append({"role": "assistant", "content": reply})
+
+            with st.chat_message("assistant"):
+                st.write(reply)
 
     # ---------------- MAP ----------------
     elif section == "Maps":
