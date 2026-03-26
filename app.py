@@ -152,13 +152,49 @@ if files:
 
     # ---------------- DASHBOARD ----------------
     elif section == "Dashboard":
-        if num_cols:
-            fig = px.histogram(df, x=num_cols[0])
+
+        st.subheader("📊 Interactive Dashboard")
+
+        # ✅ NEW: USER CONTROLLED CHART
+        if len(df.columns) > 1 and num_cols:
+            col1, col2 = st.columns(2)
+
+            x_axis = col1.selectbox("Select X-axis", df.columns)
+            y_axis = col2.selectbox("Select Y-axis", num_cols)
+
+            chart_type = st.selectbox(
+                "Select Chart Type",
+                ["Bar Chart", "Line Chart", "Scatter Plot", "Histogram"]
+            )
+
+            if chart_type == "Bar Chart":
+                fig = px.bar(df, x=x_axis, y=y_axis)
+            elif chart_type == "Line Chart":
+                fig = px.line(df, x=x_axis, y=y_axis)
+            elif chart_type == "Scatter Plot":
+                fig = px.scatter(df, x=x_axis, y=y_axis)
+            else:
+                fig = px.histogram(df, x=x_axis)
+
+            # ✅ FIX VISIBILITY
+            fig.update_layout(
+                paper_bgcolor='rgba(0,0,0,0)',
+                plot_bgcolor='rgba(0,0,0,0)'
+            )
+
             st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.warning("Not enough columns for visualization")
 
     # ---------------- SALES ----------------
     elif section == "Sales":
         st.subheader("📊 Sales Trends")
+
+        # ✅ SIMPLE AUTO CHART
+        if num_cols:
+            fig = px.line(df, y=num_cols[0])
+            fig.update_layout(paper_bgcolor='rgba(0,0,0,0)')
+            st.plotly_chart(fig, use_container_width=True)
 
     # ---------------- AI TOOL ----------------
     elif section == "AI Tool":
@@ -195,11 +231,19 @@ if files:
     with st.expander("📂 Full Data"):
         st.dataframe(df, use_container_width=True)
 
-    # AI AUTO CHART
+    # AI AUTO CHART (IMPROVED)
     with st.expander("🤖 AI Auto Chart"):
         if safe_num and safe_cat:
-            g = df.groupby(safe_cat)[safe_num].sum().reset_index()
-            st.plotly_chart(px.bar(g, x=safe_cat, y=safe_num))
+            g = df.groupby(safe_cat)[safe_num].sum().reset_index().sort_values(by=safe_num, ascending=False).head(20)
+
+            fig = px.bar(g, x=safe_cat, y=safe_num, title="Top Categories")
+
+            fig.update_layout(
+                paper_bgcolor='rgba(0,0,0,0)',
+                plot_bgcolor='rgba(0,0,0,0)'
+            )
+
+            st.plotly_chart(fig, use_container_width=True)
         else:
             st.warning("Need numeric + category column")
 
