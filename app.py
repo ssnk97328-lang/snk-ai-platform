@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 from io import BytesIO
-import requests
 import numpy as np
 import os
 
@@ -24,7 +23,6 @@ st.set_page_config(page_title="SNK AI Platform", layout="wide", page_icon="📊"
 # ---------------- LOGIN ----------------
 USERS = {
     os.getenv("APP_USER1", "admin"): os.getenv("APP_PASS1", "1234"),
-    os.getenv("APP_USER2", "user"): os.getenv("APP_PASS2", "1111")
 }
 
 if "login" not in st.session_state:
@@ -35,10 +33,9 @@ def login():
     user = st.text_input("Username")
     pwd = st.text_input("Password", type="password")
 
-    if st.button("🚀 Login", use_container_width=True):
+    if st.button("Login"):
         if user in USERS and USERS[user] == pwd:
             st.session_state.login = True
-            st.success("Access Granted")
             st.rerun()
         else:
             st.error("Invalid Credentials")
@@ -49,7 +46,6 @@ if not st.session_state.login:
 
 # ---------------- SIDEBAR ----------------
 st.sidebar.title("🚀 SNK Platform")
-theme = st.sidebar.toggle("🌗 Dark Mode", True)
 
 files = st.sidebar.file_uploader(
     "📂 Upload Files",
@@ -64,58 +60,53 @@ section = st.radio(
 )
 
 # ---------------- STYLE ----------------
-if theme:
-    st.markdown("""
-    <style>
-    .stApp {background: linear-gradient(135deg,#0f2027,#203a43,#2c5364); color:white;}
-    .card {
-        background: rgba(255,255,255,0.05);
-        padding: 20px;
-        border-radius: 15px;
-        margin-top: 20px;
-    }
-    </style>
-    """, unsafe_allow_html=True)
+st.markdown("""
+<style>
+.stApp {background: linear-gradient(135deg,#0f2027,#203a43,#2c5364); color:white;}
+.card {
+    background: rgba(255,255,255,0.05);
+    padding: 20px;
+    border-radius: 15px;
+    margin-top: 20px;
+}
+</style>
+""", unsafe_allow_html=True)
 
 px.defaults.template = "plotly_dark"
 
 # ---------------- HEADER ----------------
 st.markdown("<h1 style='text-align:center;'>📊 SNK Analytics Platform</h1>", unsafe_allow_html=True)
-st.markdown("<h4 style='text-align:center;'>Advanced Data Dashboard</h4>", unsafe_allow_html=True)
 
 # ---------------- DATA ----------------
 if files:
-    with st.spinner("Processing data..."):
-        dfs = []
-        for f in files:
-            if f.name.endswith(".csv"):
-                for chunk in pd.read_csv(f, chunksize=50000):
-                    dfs.append(chunk)
-            else:
-                dfs.append(pd.read_excel(f))
 
-        df = pd.concat(dfs, ignore_index=True)
+    dfs = []
+    for f in files:
+        if f.name.endswith(".csv"):
+            dfs.append(pd.read_csv(f))
+        else:
+            dfs.append(pd.read_excel(f))
 
-    # CLEANING
-    df.columns = [c.strip().lower().replace(" ", "_") for c in df.columns]
-    df = df.loc[:, ~df.columns.str.contains("^unnamed")]
+    df = pd.concat(dfs, ignore_index=True)
+
+    # CLEAN
+    df.columns = [c.strip().lower().replace(" ","_") for c in df.columns]
 
     for col in df.columns:
         try:
-            df[col] = df[col].astype(str).str.replace(",", "").str.strip()
+            df[col] = df[col].astype(str).str.replace(",", "")
             df[col] = pd.to_numeric(df[col], errors="coerce")
         except:
             pass
 
-    before_rows = df.shape[0]
     df = df.fillna("Unknown").drop_duplicates()
-    removed_rows = before_rows - df.shape[0]
 
     num_cols = df.select_dtypes(include=np.number).columns.tolist()
     cat_cols = df.select_dtypes(exclude=np.number).columns.tolist()
 
-    # ---------------- FILTER ----------------
-    st.subheader("🔍 Filters")
+    # ---------------- GLOBAL FILTER ----------------
+    st.subheader("🔍 Global Filters")
+
     filter_cols = st.multiselect("Select Filters", df.columns)
 
     for col in filter_cols:
@@ -126,44 +117,60 @@ if files:
     # ---------------- KPI ----------------
     st.subheader("📊 KPIs")
     c1, c2, c3 = st.columns(3)
+
     c1.metric("Total Records", len(df))
     c2.metric("Columns", len(df.columns))
+
     if num_cols:
         c3.metric("Total Value", f"{df[num_cols].sum().sum():,.0f}")
 
-    # ---------------- ALL VIEW ----------------
-    if section == "All View":
-        st.dataframe(df.head(200), use_container_width=True)
+    # ---------------- GLOBAL SLICER ----------------
+    st.subheader("🎯 Dashboard Slicer")
+
+    col1, col2, col3, col4 = st.columns(4)
+
+    x_axis = col1.selectbox("X Axis", df.columns)
+    y_axis = col2.selectbox("Y Axis", num_cols if num_cols else df.columns)
+
+    row_field = col3.selectbox("Row (Group)", cat_cols if cat_cols else df.columns)
+    value_field = col4.selectbox("Value", num_cols if num_cols else df.columns)
+
+    # ---------------- PIVOT ----------------
+    try:
+        pivot_df = df.groupby(row_field)[value_field].sum().reset_index()
+        pivot_df = pivot_df.sort_values(by=value_field, ascending=False).head(10)
+    except:
+        pivot_df = df.copy()
 
     # ---------------- DASHBOARD ----------------
+    def render_dashboard():
+
+        st.markdown("### 📊 Dashboard")
+
+        c1, c2 = st.columns(2)
+
+        c1.plotly_chart(px.bar(pivot_df, x=row_field, y=value_field), use_container_width=True)
+        c2.plotly_chart(px.pie(pivot_df, names=row_field, values=value_field), use_container_width=True)
+
+        st.plotly_chart(px.line(df, y=y_axis), use_container_width=True)
+
+        st.dataframe(pivot_df, use_container_width=True)
+
+    # ---------------- SECTIONS ----------------
+    if section == "All View":
+        st.dataframe(df.head(200))
+        render_dashboard()
+
     elif section == "Dashboard":
-        st.markdown('<div class="card">', unsafe_allow_html=True)
+        render_dashboard()
 
-        if cat_cols and num_cols:
-            x = st.selectbox("Category", cat_cols)
-            y = st.selectbox("Value", num_cols)
-
-            g = df.groupby(x)[y].sum().reset_index().sort_values(by=y, ascending=False).head(10)
-
-            st.subheader("📊 Top 10 Dashboard")
-            fig = px.bar(g, x=x, y=y, color=x, text_auto=True)
-            st.plotly_chart(fig, use_container_width=True)
-            st.dataframe(g)
-
-        else:
-            st.warning("Need numeric + category")
-
-        st.markdown('</div>', unsafe_allow_html=True)
-
-    # ---------------- SALES ----------------
     elif section == "Sales":
-        if num_cols:
-            st.plotly_chart(px.line(df, y=num_cols[0]), use_container_width=True)
+        render_dashboard()
 
-    # ---------------- AI TOOL ----------------
     elif section == "AI Tool":
-        st.subheader("🤖 AI Data Chat")
+        st.subheader("🤖 AI Tool")
         q = st.text_input("Ask your data")
+
         if q and AI_AVAILABLE:
             sample = df.head(50).to_csv(index=False)
             res = client.chat.completions.create(
@@ -172,64 +179,42 @@ if files:
             )
             st.write(res.choices[0].message.content)
 
-    # ---------------- MAP ----------------
     elif section == "Maps":
         lat = [c for c in df.columns if "lat" in c]
         lon = [c for c in df.columns if "lon" in c]
+
         if lat and lon:
-            fig = px.scatter_mapbox(df, lat=lat[0], lon=lon[0], zoom=5)
-            fig.update_layout(mapbox_style="open-street-map")
-            st.plotly_chart(fig)
+            st.map(df[[lat[0], lon[0]]].dropna())
+        else:
+            st.warning("No map data")
 
     # ---------------- ANOMALY ----------------
     st.subheader("🚨 Anomaly Detection")
+
     if num_cols:
         col = st.selectbox("Column", num_cols)
         Q1, Q3 = df[col].quantile(0.25), df[col].quantile(0.75)
         IQR = Q3 - Q1
+
         outliers = df[(df[col] < Q1 - 1.5*IQR) | (df[col] > Q3 + 1.5*IQR)]
         st.write("Outliers:", len(outliers))
         st.dataframe(outliers.head(100))
 
-    # ================= POWER BI DASHBOARD =================
-    st.markdown("---")
-    st.header("📊 Power BI Style Dashboard")
-
-    if num_cols and cat_cols:
-        k1,k2,k3,k4 = st.columns(4)
-        k1.metric("Total", f"{df[num_cols].sum().sum():,.0f}")
-        k2.metric("Avg", f"{df[num_cols].mean().mean():.2f}")
-        k3.metric("Rows", len(df))
-        k4.metric("Cols", len(df.columns))
-
-        x, y = cat_cols[0], num_cols[0]
-        g = df.groupby(x)[y].sum().reset_index().sort_values(by=y, ascending=False).head(10)
-
-        cA, cB = st.columns(2)
-        cA.plotly_chart(px.bar(g, x=x, y=y), use_container_width=True)
-        cB.plotly_chart(px.pie(g, names=x, values=y), use_container_width=True)
-
-        st.plotly_chart(px.line(df, y=y), use_container_width=True)
-
-    # ================= AUTO INSIGHTS =================
-    st.markdown("---")
-    st.header("🤖 Auto Insights")
+    # ---------------- AUTO INSIGHTS ----------------
+    st.subheader("🤖 Auto Insights")
 
     if num_cols and cat_cols:
         top = df[cat_cols[0]].value_counts().idxmax()
         pct = round(df[cat_cols[0]].value_counts(normalize=True).max()*100,2)
         st.write(f"🔹 {top} contributes {pct}%")
 
-        st.write(f"🔹 Max {num_cols[0]} = {df[num_cols[0]].max()}")
-        st.write(f"🔹 Min {num_cols[0]} = {df[num_cols[0]].min()}")
-
-    # ================= FORECAST =================
-    st.markdown("---")
-    st.header("📈 Forecasting")
+    # ---------------- FORECAST ----------------
+    st.subheader("📈 Forecasting")
 
     if num_cols:
         col = num_cols[0]
         dff = df[[col]].dropna().reset_index()
+
         z = np.polyfit(dff.index, dff[col], 1)
         p = np.poly1d(z)
 
@@ -241,20 +226,21 @@ if files:
         full = pd.concat([dff, future])
         st.plotly_chart(px.line(full, x="index", y=col), use_container_width=True)
 
-    # ================= PDF =================
-    st.markdown("---")
-    st.header("📥 Download PDF")
+    # ---------------- PDF ----------------
+    st.subheader("📥 Download PDF")
 
     def create_pdf():
         buffer = BytesIO()
         doc = SimpleDocTemplate(buffer)
         styles = getSampleStyleSheet()
+
         story = [
             Paragraph("SNK Dashboard Report", styles["Title"]),
             Spacer(1,20),
             Paragraph(f"Rows: {len(df)}", styles["Normal"]),
             Paragraph(f"Columns: {len(df.columns)}", styles["Normal"])
         ]
+
         doc.build(story)
         buffer.seek(0)
         return buffer
