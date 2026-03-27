@@ -1,13 +1,10 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-from io import BytesIO
 import numpy as np
+from io import BytesIO
 import os
-
-# PDF
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
-from reportlab.lib.styles import getSampleStyleSheet
+import json
 
 # OPTIONAL AI
 try:
@@ -18,58 +15,75 @@ except:
     AI_AVAILABLE = False
 
 # ---------------- CONFIG ----------------
-st.set_page_config(page_title="SNK AI Platform", layout="wide", page_icon="📊")
+st.set_page_config(page_title="SNK SaaS BI Platform", layout="wide")
+
+# ---------------- USER DATABASE ----------------
+USER_DB_FILE = "users.json"
+
+def load_users():
+    if os.path.exists(USER_DB_FILE):
+        return json.load(open(USER_DB_FILE))
+    return {"admin": {"password": "1234"}}
+
+def save_users(users):
+    json.dump(users, open(USER_DB_FILE, "w"))
+
+users = load_users()
 
 # ---------------- LOGIN ----------------
-USERS = {
-    os.getenv("APP_USER1", "admin"): os.getenv("APP_PASS1", "1234"),
-}
-
-if "login" not in st.session_state:
-    st.session_state.login = False
+if "user" not in st.session_state:
+    st.session_state.user = None
 
 def login():
-    st.markdown("<h1 style='text-align:center;'>🔐 SNK Data Platform</h1>", unsafe_allow_html=True)
-    user = st.text_input("Username")
-    pwd = st.text_input("Password", type="password")
+    st.title("🔐 SNK SaaS Platform")
 
-    if st.button("Login"):
-        if user in USERS and USERS[user] == pwd:
-            st.session_state.login = True
-            st.rerun()
-        else:
-            st.error("Invalid Credentials")
+    tab1, tab2 = st.tabs(["Login", "Signup"])
 
-if not st.session_state.login:
+    with tab1:
+        u = st.text_input("Username")
+        p = st.text_input("Password", type="password")
+
+        if st.button("Login"):
+            if u in users and users[u]["password"] == p:
+                st.session_state.user = u
+                st.success("Login successful")
+                st.rerun()
+            else:
+                st.error("Invalid credentials")
+
+    with tab2:
+        new_u = st.text_input("New Username")
+        new_p = st.text_input("New Password", type="password")
+
+        if st.button("Signup"):
+            users[new_u] = {"password": new_p}
+            save_users(users)
+            st.success("User created")
+
+if not st.session_state.user:
     login()
     st.stop()
 
 # ---------------- SIDEBAR ----------------
-st.sidebar.title("🚀 SNK Platform")
+st.sidebar.title(f"👤 {st.session_state.user}")
 
-files = st.sidebar.file_uploader(
-    "📂 Upload Files",
-    type=["csv", "xlsx"],
-    accept_multiple_files=True
-)
-
-section = st.radio(
+section = st.sidebar.radio(
     "Navigation",
-    ["All View", "Dashboard", "Sales", "AI Tool", "Maps"],
-    horizontal=True
+    ["All View", "Dashboard", "Sales", "AI Tool", "Maps", "💳 Upgrade"]
 )
 
-# ---------------- STYLE ----------------
-st.markdown("""
-<style>
-.stApp {background: linear-gradient(135deg,#0f2027,#203a43,#2c5364); color:white;}
-</style>
-""", unsafe_allow_html=True)
+files = st.sidebar.file_uploader("Upload Files", type=["csv","xlsx"], accept_multiple_files=True)
 
-px.defaults.template = "plotly_dark"
+# ---------------- PAYMENT MOCK ----------------
+if section == "💳 Upgrade":
+    st.title("💳 Upgrade Plan")
 
-# ---------------- HEADER ----------------
-st.markdown("<h1 style='text-align:center;'>📊 SNK Analytics Platform</h1>", unsafe_allow_html=True)
+    st.write("Unlock full features 🚀")
+
+    if st.button("Pay ₹499 (Demo)"):
+        st.success("Payment Successful (Mock)")
+
+    st.stop()
 
 # ---------------- DATA ----------------
 if files:
@@ -83,24 +97,20 @@ if files:
 
     df = pd.concat(dfs, ignore_index=True)
 
-    # CLEAN COLUMN NAMES
-    df.columns = [c.strip().lower().replace(" ", "_") for c in df.columns]
+    df.columns = [c.strip().lower().replace(" ","_") for c in df.columns]
+    df = df.fillna("Unknown").drop_duplicates()
 
-    # CONVERT TYPES
     for col in df.columns:
-        df[col] = df[col].astype(str).str.replace(",", "")
-        df[col] = pd.to_numeric(df[col], errors="ignore")
+        try:
+            df[col] = pd.to_numeric(df[col], errors="ignore")
+        except:
+            pass
 
-    # DETECT TYPES
     num_cols = df.select_dtypes(include=np.number).columns.tolist()
     cat_cols = df.select_dtypes(exclude=np.number).columns.tolist()
 
-    # FILL ONLY CATEGORICAL
-    df[cat_cols] = df[cat_cols].fillna("Unknown")
-    df = df.drop_duplicates()
-
-    # ---------------- GLOBAL FILTER ----------------
-    st.subheader("🔍 Global Filters")
+    # ---------------- FILTER ----------------
+    st.subheader("🔍 Filters")
 
     filter_cols = st.multiselect("Select Filters", df.columns)
 
@@ -109,129 +119,128 @@ if files:
         if val != "All":
             df = df[df[col].astype(str) == val]
 
-    # ---------------- KPI ----------------
-    st.subheader("📊 KPIs")
-    c1, c2, c3 = st.columns(3)
-
-    c1.metric("Total Records", len(df))
-    c2.metric("Columns", len(df.columns))
-
-    if num_cols:
-        c3.metric("Total Value", f"{df[num_cols].sum().sum():,.0f}")
-
     # ---------------- SLICER ----------------
-    st.subheader("🎯 Dashboard Slicer")
+    st.subheader("🎯 Power BI Slicer")
 
-    col1, col2 = st.columns(2)
-    x_axis = col1.selectbox("X Axis (Category)", cat_cols)
-    y_axis = col2.selectbox("Y Axis (Numeric)", num_cols)
+    c1,c2,c3,c4 = st.columns(4)
 
-    def prepare_chart_data(df, x_axis, y_axis):
-        try:
-            return (
-                df.groupby(x_axis)[y_axis]
-                .sum()
-                .reset_index()
-                .sort_values(by=y_axis, ascending=False)
-                .head(20)
-            )
-        except:
-            return df.head(50)
+    x_axis = c1.selectbox("X Axis", df.columns)
+    y_axis = c2.selectbox("Y Axis", num_cols if num_cols else df.columns)
 
-    chart_df = prepare_chart_data(df, x_axis, y_axis)
+    row_field = c3.selectbox("Row", df.columns)
+    value_field = c4.selectbox("Value", num_cols if num_cols else df.columns)
+
+    # ---------------- PIVOT ----------------
+    try:
+        pivot_df = df.groupby(row_field)[value_field].sum().reset_index()
+        pivot_df = pivot_df.sort_values(by=value_field, ascending=False).head(10)
+    except:
+        pivot_df = df.copy()
 
     # ---------------- DASHBOARD ----------------
-    st.markdown("### 📊 Dynamic Dashboard")
+    def render_dashboard():
 
-    c1, c2 = st.columns(2)
-    c1.plotly_chart(px.bar(chart_df, x=x_axis, y=y_axis), use_container_width=True)
-    c2.plotly_chart(px.pie(chart_df, names=x_axis, values=y_axis), use_container_width=True)
+        st.subheader("📊 Power BI Dashboard")
 
-    st.plotly_chart(px.line(chart_df, x=x_axis, y=y_axis), use_container_width=True)
-    st.dataframe(chart_df, use_container_width=True)
+        k1,k2,k3,k4 = st.columns(4)
+        k1.metric("Rows", len(df))
+        k2.metric("Columns", len(df.columns))
 
-    # ---------------- FORECAST ----------------
-    st.subheader("📈 Forecasting")
+        if num_cols:
+            k3.metric("Total", f"{df[num_cols].sum().sum():,.0f}")
+            k4.metric("Avg", f"{df[num_cols].mean().mean():.2f}")
 
-    if num_cols:
+        cA,cB = st.columns(2)
 
-        f1, f2 = st.columns(2)
+        with cA:
+            fig1 = px.bar(pivot_df, x=row_field, y=value_field)
+            st.plotly_chart(fig1, use_container_width=True)
 
-        forecast_col = f1.selectbox("Select Column for Forecast", num_cols)
+        with cB:
+            fig2 = px.pie(pivot_df, names=row_field, values=value_field)
+            st.plotly_chart(fig2, use_container_width=True)
 
-        date_cols = [c for c in df.columns if "date" in c.lower()]
-        date_col = f2.selectbox("Optional Time Column", ["None"] + date_cols)
+        # Drill-down
+        st.subheader("📊 Drill Down")
+        drill = st.selectbox("Select Drill Column", df.columns)
+        fig3 = px.bar(df, x=drill, y=y_axis)
+        st.plotly_chart(fig3, use_container_width=True)
 
-        dff = df[[forecast_col]].dropna().reset_index()
-
-        if len(dff) > 1:
-
-            z = np.polyfit(dff.index, dff[forecast_col], 1)
+        # Trend
+        if y_axis in num_cols:
+            st.subheader("📈 Trend + Forecast")
+            dff = df[[y_axis]].dropna().reset_index()
+            z = np.polyfit(dff.index, dff[y_axis], 1)
             p = np.poly1d(z)
 
-            future_range = 15
-
             future = pd.DataFrame({
-                "index": range(len(dff), len(dff) + future_range),
-                forecast_col: p(range(len(dff), len(dff) + future_range))
+                "index": range(len(dff), len(dff)+10),
+                y_axis: p(range(len(dff), len(dff)+10))
             })
 
             full = pd.concat([dff, future])
+            st.plotly_chart(px.line(full, x="index", y=y_axis), use_container_width=True)
 
-            st.plotly_chart(
-                px.line(full, x="index", y=forecast_col,
-                        title=f"Forecast for {forecast_col}"),
-                use_container_width=True
-            )
+        st.dataframe(pivot_df)
 
-            st.info("🔮 Linear trend prediction (simple forecasting model)")
+    # ---------------- ALL VIEW ----------------
+    if section == "All View":
+        st.dataframe(df.head(200))
+        render_dashboard()
 
-        else:
-            st.warning("Not enough data for forecasting")
+    elif section == "Dashboard":
+        render_dashboard()
 
-    # ---------------- ANOMALY ----------------
-    st.subheader("🚨 Anomaly Detection")
+    elif section == "Sales":
+        render_dashboard()
 
-    if num_cols:
-        col = st.selectbox("Column", num_cols)
-        Q1, Q3 = df[col].quantile(0.25), df[col].quantile(0.75)
-        IQR = Q3 - Q1
+    # ---------------- AI TOOL ----------------
+    elif section == "AI Tool":
+        st.subheader("🤖 ChatGPT Data Assistant")
 
-        outliers = df[(df[col] < Q1 - 1.5*IQR) | (df[col] > Q3 + 1.5*IQR)]
-        st.write("Outliers:", len(outliers))
-        st.dataframe(outliers.head(100))
+        q = st.text_input("Ask question")
 
-    # ---------------- AUTO INSIGHTS ----------------
-    st.subheader("🤖 Auto Insights")
+        if q:
+            if AI_AVAILABLE:
+                sample = df.head(50).to_csv(index=False)
 
-    if num_cols and cat_cols:
-        top = df[cat_cols[0]].value_counts().idxmax()
-        pct = round(df[cat_cols[0]].value_counts(normalize=True).max()*100, 2)
-        st.write(f"🔹 {top} contributes {pct}%")
+                res = client.chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=[
+                        {"role":"system","content":"You are a data analyst"},
+                        {"role":"user","content":sample + "\n" + q}
+                    ]
+                )
+                st.write(res.choices[0].message.content)
+            else:
+                st.warning("Add OpenAI API Key")
 
-    # ---------------- PDF ----------------
-    st.subheader("📥 Download PDF")
+    # ---------------- MAP ----------------
+    elif section == "Maps":
+        lat = [c for c in df.columns if "lat" in c]
+        lon = [c for c in df.columns if "lon" in c]
+
+        if lat and lon:
+            st.map(df[[lat[0], lon[0]]].dropna())
+
+    # ---------------- SAVE DASHBOARD ----------------
+    st.markdown("---")
+    st.subheader("💾 Save Dashboard")
+
+    if st.button("Save"):
+        df.to_csv(f"{st.session_state.user}_dashboard.csv", index=False)
+        st.success("Saved!")
+
+    # ---------------- PDF EXPORT ----------------
+    st.subheader("📥 Export PDF")
 
     def create_pdf():
         buffer = BytesIO()
-        doc = SimpleDocTemplate(buffer)
-        styles = getSampleStyleSheet()
-
-        story = [
-            Paragraph("SNK Dashboard Report", styles["Title"]),
-            Spacer(1, 20),
-            Paragraph(f"Rows: {len(df)}", styles["Normal"]),
-            Paragraph(f"Columns: {len(df.columns)}", styles["Normal"])
-        ]
-
-        doc.build(story)
+        buffer.write(bytes(f"Dashboard Rows: {len(df)}", 'utf-8'))
         buffer.seek(0)
         return buffer
 
     st.download_button("Download PDF", create_pdf())
 
 else:
-    st.info("👈 Upload files to start")
-
-# ---------------- FOOTER ----------------
-st.markdown("<hr><center>🚀 SNK Data Platform</center>", unsafe_allow_html=True)
+    st.info("Upload files to start")
