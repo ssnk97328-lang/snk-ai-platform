@@ -303,10 +303,12 @@ if files:
                     cfg = charts_config['distribution']
                     st.write(f"##### {cfg['title']}")
                     if cfg['type'] == 'pie':
-                        p_data = df.groupby(cfg['names'])[cfg['values']].sum().reset_index()
+                        # CRITICAL BUGFIX: added as_index=False to prevent aggregation renaming errors
+                        p_data = df.groupby(cfg['names'], as_index=False)[cfg['values']].sum()
                         fig = px.pie(p_data, names=cfg['names'], values=cfg['values'], template="plotly_white", hole=0.3)
                     else:
-                        p_data = df.groupby(cfg['x'])[cfg['y']].sum().reset_index().sort_values(by=cfg['y'], ascending=False).head(10)
+                        # CRITICAL BUGFIX: added as_index=False to prevent aggregation renaming errors
+                        p_data = df.groupby(cfg['x'], as_index=False)[cfg['y']].sum().sort_values(by=cfg['y'], ascending=False).head(10)
                         fig = px.bar(p_data, x=cfg['x'], y=cfg['y'], color=cfg['y'], color_continuous_scale="Blugrn", template="plotly_white")
                     st.plotly_chart(fig, use_container_width=True)
 
@@ -315,10 +317,12 @@ if files:
                     cfg = charts_config['timeline']
                     st.write(f"##### {cfg['title']}")
                     if df[cfg['x']].dtype == 'object':
-                        t_data = df.groupby(cfg['x'])[cfg['y']].sum().reset_index().sort_values(by=cfg['y'], ascending=False).head(15)
+                        # CRITICAL BUGFIX: added as_index=False to prevent aggregation renaming errors
+                        t_data = df.groupby(cfg['x'], as_index=False)[cfg['y']].sum().sort_values(by=cfg['y'], ascending=False).head(15)
                         fig = px.bar(t_data, x=cfg['x'], y=cfg['y'], template="plotly_white", color_discrete_sequence=["#007bff"])
                     else:
-                        t_data = df.groupby(cfg['x'])[cfg['y']].mean().reset_index()
+                        # CRITICAL BUGFIX: added as_index=False to prevent aggregation renaming errors
+                        t_data = df.groupby(cfg['x'], as_index=False)[cfg['y']].mean()
                         fig = px.line(t_data, x=cfg['x'], y=cfg['y'], markers=True, template="plotly_white", color_discrete_sequence=["#28a745"])
                     st.plotly_chart(fig, use_container_width=True)
 
@@ -338,7 +342,8 @@ if files:
                 with g4:
                     if active_x and active_y:
                         st.write(f"##### Metric Allocation Matrix: {active_x.title()}")
-                        pivot_summary = df.groupby(active_x)[active_y].agg(['sum', 'mean', 'count']).reset_index().sort_values(by='sum', ascending=False).head(10)
+                        # CRITICAL BUGFIX: added as_index=False to prevent aggregation renaming errors
+                        pivot_summary = df.groupby(active_x, as_index=False)[active_y].agg(['sum', 'mean', 'count']).sort_values(by='sum', ascending=False).head(10)
                         st.dataframe(pivot_summary, use_container_width=True, hide_index=True)
 
         # ---------------- INTERACTION SECTIONS RENDER ROUTING ----------------
@@ -357,7 +362,6 @@ if files:
                         for c in cat_cols[:2]:
                             stats_summary += f"Categorical Axis '{c}' has {df[c].nunique()} unique metrics. "
                     
-                    # Safely bind PDF guidelines context into the runtime prompt
                     pdf_context = st.session_state.pdf_context_text if st.session_state.pdf_context_text else "No extra document text provided."
                     
                     agent_prompt = f"""
@@ -508,7 +512,6 @@ if files:
                 use_container_width=True
             )
     else:
-        # User uploaded a PDF, but hasn't uploaded data spreadsheets yet
         st.info("📖 PDF Document contents indexed. Please upload a corresponding data spreadsheet (CSV/XLSX) to populate the analytics dashboards.")
 else:
     st.info("👋 System ready. Ingest data sheets (CSV/XLSX) or document rules (PDF) via the sidebar menu to begin execution mapping.")
