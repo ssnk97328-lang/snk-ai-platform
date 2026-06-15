@@ -13,9 +13,10 @@ try:
 except Exception:
     PYPDF_AVAILABLE = False
 
-# OPTIONAL AI CORE CONFIGURATION
+# OPTIONAL AI CORE CONFIGURATION WITH EXCEPTION HANDLING
 try:
     from openai import OpenAI
+    import openai  # Imported explicitly to catch specific API errors safely
     client = OpenAI()
     AI_AVAILABLE = True
 except Exception:
@@ -303,11 +304,9 @@ if files:
                     cfg = charts_config['distribution']
                     st.write(f"##### {cfg['title']}")
                     if cfg['type'] == 'pie':
-                        # CRITICAL BUGFIX: added as_index=False to prevent aggregation renaming errors
                         p_data = df.groupby(cfg['names'], as_index=False)[cfg['values']].sum()
                         fig = px.pie(p_data, names=cfg['names'], values=cfg['values'], template="plotly_white", hole=0.3)
                     else:
-                        # CRITICAL BUGFIX: added as_index=False to prevent aggregation renaming errors
                         p_data = df.groupby(cfg['x'], as_index=False)[cfg['y']].sum().sort_values(by=cfg['y'], ascending=False).head(10)
                         fig = px.bar(p_data, x=cfg['x'], y=cfg['y'], color=cfg['y'], color_continuous_scale="Blugrn", template="plotly_white")
                     st.plotly_chart(fig, use_container_width=True)
@@ -317,11 +316,9 @@ if files:
                     cfg = charts_config['timeline']
                     st.write(f"##### {cfg['title']}")
                     if df[cfg['x']].dtype == 'object':
-                        # CRITICAL BUGFIX: added as_index=False to prevent aggregation renaming errors
                         t_data = df.groupby(cfg['x'], as_index=False)[cfg['y']].sum().sort_values(by=cfg['y'], ascending=False).head(15)
                         fig = px.bar(t_data, x=cfg['x'], y=cfg['y'], template="plotly_white", color_discrete_sequence=["#007bff"])
                     else:
-                        # CRITICAL BUGFIX: added as_index=False to prevent aggregation renaming errors
                         t_data = df.groupby(cfg['x'], as_index=False)[cfg['y']].mean()
                         fig = px.line(t_data, x=cfg['x'], y=cfg['y'], markers=True, template="plotly_white", color_discrete_sequence=["#28a745"])
                     st.plotly_chart(fig, use_container_width=True)
@@ -342,7 +339,6 @@ if files:
                 with g4:
                     if active_x and active_y:
                         st.write(f"##### Metric Allocation Matrix: {active_x.title()}")
-                        # CRITICAL BUGFIX: added as_index=False to prevent aggregation renaming errors
                         pivot_summary = df.groupby(active_x, as_index=False)[active_y].agg(['sum', 'mean', 'count']).sort_values(by='sum', ascending=False).head(10)
                         st.dataframe(pivot_summary, use_container_width=True, hide_index=True)
 
@@ -380,14 +376,19 @@ if files:
                     Keep the tone sharp, direct, and elite. Do not repeat raw python dictionary keys.
                     """
                     
-                    res = client.chat.completions.create(
-                        model="gpt-4o-mini",
-                        messages=[{"role": "user", "content": agent_prompt}]
-                    )
-                    
-                    st.markdown('<div class="insight-box">', unsafe_allow_html=True)
-                    st.write(res.choices[0].message.content)
-                    st.markdown('</div>', unsafe_allow_html=True)
+                    # SAFE TRY-EXCEPT WRAPPER FOR GENERATING EXECUTIVE BRIEFS
+                    try:
+                        res = client.chat.completions.create(
+                            model="gpt-4o-mini",
+                            messages=[{"role": "user", "content": agent_prompt}]
+                        )
+                        st.markdown('<div class="insight-box">', unsafe_allow_html=True)
+                        st.write(res.choices[0].message.content)
+                        st.markdown('</div>', unsafe_allow_html=True)
+                    except openai.RateLimitError:
+                        st.error("⚠️ OpenAI API Rate Limit / Quota Exceeded. The automated dashboard engine is still running smoothly below, but the text report cannot be generated right now. Please verify your OpenAI billing or API limits.")
+                    except Exception as fallback_err:
+                        st.warning(f"⚠️ Narrative Report unavailable due to an API challenge: {str(fallback_err)}")
             else:
                 st.warning("Please supply an OpenAI API token framework to run Autonomous narrative translations.")
                 
@@ -431,6 +432,8 @@ if files:
                           "answer": "your_written_answer_or_analysis_if_applicable"
                         }}
                         """
+                        
+                        # SAFE TRY-EXCEPT WRAPPER FOR CHATBOT INTERACTIONS
                         try:
                             response = client.chat.completions.create(
                                 model="gpt-4o-mini",
@@ -453,8 +456,10 @@ if files:
                                 st.session_state.ai_override_x = ax_x
                                 st.session_state.ai_override_y = ax_y
                                 st.success(f"Focused visual mapping onto targets: `{ax_x}` by `{ax_y}`")
-                        except Exception as e:
-                            st.error(f"Error communicating with AI engine: {str(e)}")
+                        except openai.RateLimitError:
+                            st.error("⚠️ OpenAI API Rate Limit / Quota Exceeded. The copilot text assistant could not compute this answer right now. Please add credits to your OpenAI Account.")
+                        except Exception as chat_err:
+                            st.warning(f"⚠️ Unable to query Copilot engine: {str(chat_err)}")
                 
                 build_dashboard_interface(view_mode="Advanced")
 
