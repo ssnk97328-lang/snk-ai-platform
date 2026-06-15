@@ -22,11 +22,16 @@ USER_DB_FILE = "users.json"
 
 def load_users():
     if os.path.exists(USER_DB_FILE):
-        return json.load(open(USER_DB_FILE))
+        try:
+            with open(USER_DB_FILE, "r") as f:
+                return json.load(f)
+        except:
+            return {"admin": {"password": "1234"}}
     return {"admin": {"password": "1234"}}
 
 def save_users(users):
-    json.dump(users, open(USER_DB_FILE, "w"))
+    with open(USER_DB_FILE, "w") as f:
+        json.dump(users, f)
 
 users = load_users()
 
@@ -36,13 +41,11 @@ if "user" not in st.session_state:
 
 def login():
     st.title("🔐 SNK SaaS Platform")
-
     tab1, tab2 = st.tabs(["Login", "Signup"])
 
     with tab1:
-        u = st.text_input("Username")
-        p = st.text_input("Password", type="password")
-
+        u = st.text_input("Username", key="login_user")
+        p = st.text_input("Password", type="password", key="login_pass")
         if st.button("Login"):
             if u in users and users[u]["password"] == p:
                 st.session_state.user = u
@@ -52,13 +55,15 @@ def login():
                 st.error("Invalid credentials")
 
     with tab2:
-        new_u = st.text_input("New Username")
-        new_p = st.text_input("New Password", type="password")
-
+        new_u = st.text_input("New Username", key="signup_user")
+        new_p = st.text_input("New Password", type="password", key="signup_pass")
         if st.button("Signup"):
-            users[new_u] = {"password": new_p}
-            save_users(users)
-            st.success("User created")
+            if new_u:
+                users[new_u] = {"password": new_p}
+                save_users(users)
+                st.success("User created successfully! Please login.")
+            else:
+                st.error("Username cannot be empty")
 
 if not st.session_state.user:
     login()
@@ -77,17 +82,13 @@ files = st.sidebar.file_uploader("Upload Files", type=["csv","xlsx"], accept_mul
 # ---------------- PAYMENT MOCK ----------------
 if section == "💳 Upgrade":
     st.title("💳 Upgrade Plan")
-
     st.write("Unlock full features 🚀")
-
     if st.button("Pay ₹499 (Demo)"):
         st.success("Payment Successful (Mock)")
-
     st.stop()
 
-# ---------------- DATA ----------------
+# ---------------- DATA PROCESSING ----------------
 if files:
-
     dfs = []
     for f in files:
         if f.name.endswith(".csv"):
@@ -96,96 +97,157 @@ if files:
             dfs.append(pd.read_excel(f))
 
     df = pd.concat(dfs, ignore_index=True)
-
     df.columns = [c.strip().lower().replace(" ","_") for c in df.columns]
     df = df.fillna("Unknown").drop_duplicates()
 
+    # Smart numeric conversion
     for col in df.columns:
         try:
-            df[col] = pd.to_numeric(df[col], errors="ignore")
+            converted = pd.to_numeric(df[col], errors="raise")
+            df[col] = converted
         except:
             pass
 
     num_cols = df.select_dtypes(include=np.number).columns.tolist()
     cat_cols = df.select_dtypes(exclude=np.number).columns.tolist()
 
-    # ---------------- FILTER ----------------
-    st.subheader("🔍 Filters")
+    # ---------------- GLOBAL FILTERS ----------------
+    st.subheader("🔍 Smart Filters")
+    filter_cols = st.multiselect("Select Columns to Filter Data", df.columns)
+    
+    if filter_cols:
+        col_layouts = st.columns(len(filter_cols))
+        for idx, col in enumerate(filter_cols):
+            with col_layouts[idx]:
+                val = st.selectbox(f"Filter {col}", ["All"] + df[col].astype(str).unique().tolist(), key=f"filt_{col}")
+                if val != "All":
+                    df = df[df[col].astype(str) == val]
 
-    filter_cols = st.multiselect("Select Filters", df.columns)
+    # ---------------- SMART AUTO-CHART ENGINE ----------------
+    def get_auto_charts(dataframe, numeric_columns, categorical_columns):
+        """
+        Analyzes dataframe structure and automatically determines the 
+        best X, Y fields and chart layouts for the visualization layout.
+        """
+        suggestions = {}
+        
+        # Look for potential Date/Time columns first
+        time_col = None
+        for col in dataframe.columns:
+            if 'date' in col or 'year' in col or 'month' in col or 'time' in col:
+                time_col = col
+                break
+                
+        # Fallback categorical and numerical setups
+        best_cat = categorical_columns[0] if categorical_columns else (dataframe.columns[0] if len(dataframe.columns) > 0 else None)
+        best_num = numeric_columns[0] if numeric_columns else None
+        
+        # Rule 1: Trend Line (Time Series)
+        if time_col and best_num:
+            suggestions['trend'] = {'x': time_col, 'y': best_num, 'type': 'line', 'title': f'Trend of {best_num.title()} over {time_col.title()}'}
+        elif len(numeric_columns) >= 1:
+            # Fallback trend line using index sequence
+            suggestions['trend'] = {'x': dataframe.index.name if dataframe.index.name else 'Index', 'y': best_num, 'type': 'line', 'title': f'{best_num.title()} Distribution Trend'}
 
-    for col in filter_cols:
-        val = st.selectbox(col, ["All"] + df[col].astype(str).unique().tolist())
-        if val != "All":
-            df = df[df[col].astype(str) == val]
+        # Rule 2: Distribution/Composition (Pie or Bar based on unique values)
+        if best_cat and best_num:
+            unique_count = dataframe[best_cat].nunique()
+            # If low unique values (2 to 7), a Pie Chart is clean and perfect
+            if 1 < unique_count <= 7:
+                suggestions['composition'] = {'names': best_cat, 'values': best_num, 'type': 'pie', 'title': f'Composition Breakup of {best_num.title()} by {best_cat.title()}'}
+            else:
+                # Top 10 High-impact distribution bar chart
+                suggestions['composition'] = {'x': best_cat, 'y': best_num, 'type': 'bar', 'title': f'Top Results of {best_num.title()} by {best_cat.title()}'}
 
-    # ---------------- SLICER ----------------
-    st.subheader("🎯 Power BI Slicer")
+        # Rule 3: Correlation (Scatter Matrix)
+        if len(numeric_columns) >= 2:
+            suggestions['correlation'] = {'x': numeric_columns[0], 'y': numeric_columns[1], 'type': 'scatter', 'title': f'{numeric_columns[0].title()} vs {numeric_columns[1].title()} Interaction'}
+            
+        return suggestions, best_cat, best_num
 
-    c1,c2,c3,c4 = st.columns(4)
+    # Get automated insights
+    auto_config, auto_x, auto_y = get_auto_charts(df, num_cols, cat_cols)
 
-    x_axis = c1.selectbox("X Axis", df.columns)
-    y_axis = c2.selectbox("Y Axis", num_cols if num_cols else df.columns)
-
-    row_field = c3.selectbox("Row", df.columns)
-    value_field = c4.selectbox("Value", num_cols if num_cols else df.columns)
-
-    # ---------------- PIVOT ----------------
-    try:
-        pivot_df = df.groupby(row_field)[value_field].sum().reset_index()
-        pivot_df = pivot_df.sort_values(by=value_field, ascending=False).head(10)
-    except:
-        pivot_df = df.copy()
-
-    # ---------------- DASHBOARD ----------------
+    # ---------------- AUTOMATED DASHBOARD RENDERER ----------------
     def render_dashboard():
+        st.markdown("---")
+        st.subheader("📊 Automated Intelligent Dashboard")
+        st.caption("✨ Analytics layouts generated automatically based on your dataset properties.")
 
-        st.subheader("📊 Power BI Dashboard")
-
-        k1,k2,k3,k4 = st.columns(4)
-        k1.metric("Rows", len(df))
-        k2.metric("Columns", len(df.columns))
+        # Key Performance Metrics Row
+        k1, k2, k3, k4 = st.columns(4)
+        k1.metric("Total Rows", f"{len(df):,}")
+        k2.metric("Total Columns", len(df.columns))
 
         if num_cols:
-            k3.metric("Total", f"{df[num_cols].sum().sum():,.0f}")
-            k4.metric("Avg", f"{df[num_cols].mean().mean():.2f}")
+            k3.metric("Aggregated Volume", f"{df[num_cols[0]].sum():,.0f}")
+            k4.metric("Average Value", f"{df[num_cols[0]].mean():,.2f}")
+        else:
+            k3.metric("Categorical Metrics", len(cat_cols))
+            k4.metric("Status", "Operational")
 
-        cA,cB = st.columns(2)
-
+        st.markdown("### 📈 Visual Analytics Insights")
+        
+        # Dynamic Row 1 layouts based on findings
+        cA, cB = st.columns(2)
+        
         with cA:
-            fig1 = px.bar(pivot_df, x=row_field, y=value_field)
-            st.plotly_chart(fig1, use_container_width=True)
+            if 'composition' in auto_config:
+                cfg = auto_config['composition']
+                st.write(f"##### {cfg['title']}")
+                
+                # Dynamic Pivot summary setup
+                if cfg['type'] == 'pie':
+                    pivot_data = df.groupby(cfg['names'])[cfg['values']].sum().reset_index()
+                    fig = px.pie(pivot_data, names=cfg['names'], values=cfg['values'], hole=0.4)
+                else:
+                    pivot_data = df.groupby(cfg['x'])[cfg['y']].sum().reset_index().sort_values(by=cfg['y'], ascending=False).head(10)
+                    fig = px.bar(pivot_data, x=cfg['x'], y=cfg['y'], color=cfg['y'], color_continuous_scale="Viridis")
+                
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.info("Insufficient data properties for compositional breakdowns.")
 
         with cB:
-            fig2 = px.pie(pivot_df, names=row_field, values=value_field)
-            st.plotly_chart(fig2, use_container_width=True)
+            if 'trend' in auto_config:
+                cfg = auto_config['trend']
+                st.write(f"##### {cfg['title']}")
+                
+                if cfg['x'] == 'Index':
+                    fig = px.line(df, y=cfg['y'], render_mode="svg")
+                else:
+                    trend_data = df.groupby(cfg['x'])[cfg['y']].mean().reset_index()
+                    fig = px.line(trend_data, x=cfg['x'], y=cfg['y'], markers=True)
+                
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.info("Insufficient metrics data detected to map trendlines.")
 
-        # Drill-down
-        st.subheader("📊 Drill Down")
-        drill = st.selectbox("Select Drill Column", df.columns)
-        fig3 = px.bar(df, x=drill, y=y_axis)
-        st.plotly_chart(fig3, use_container_width=True)
+        # Dynamic Row 2 layout (Advanced Insights)
+        st.markdown("---")
+        cC, cD = st.columns(2)
+        
+        with cC:
+            if 'correlation' in auto_config:
+                cfg = auto_config['correlation']
+                st.write(f"##### {cfg['title']}")
+                fig = px.scatter(df, x=cfg['x'], y=cfg['y'], trendline="ols" if len(df) < 5000 else None, color=auto_x if auto_x else None)
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.info("Add multiple numerical columns to unlock dynamic scatter analysis.")
 
-        # Trend
-        if y_axis in num_cols:
-            st.subheader("📈 Trend + Forecast")
-            dff = df[[y_axis]].dropna().reset_index()
-            z = np.polyfit(dff.index, dff[y_axis], 1)
-            p = np.poly1d(z)
+        with cD:
+            # Smart Automated Drill-Down Selection Matrix
+            if auto_x and auto_y:
+                st.write(f"##### Quick Summary Split: {auto_x.title()}")
+                drill_summary = df.groupby(auto_x)[auto_y].agg(['sum', 'count']).reset_index().sort_values(by='sum', ascending=False).head(10)
+                st.dataframe(drill_summary, use_container_width=True)
+            else:
+                st.dataframe(df.head(10), use_container_width=True)
 
-            future = pd.DataFrame({
-                "index": range(len(dff), len(dff)+10),
-                y_axis: p(range(len(dff), len(dff)+10))
-            })
-
-            full = pd.concat([dff, future])
-            st.plotly_chart(px.line(full, x="index", y=y_axis), use_container_width=True)
-
-        st.dataframe(pivot_df)
-
-    # ---------------- ALL VIEW ----------------
+    # ---------------- INTERACTION VIEW HANDLERS ----------------
     if section == "All View":
-        st.dataframe(df.head(200))
+        st.dataframe(df.head(100))
         render_dashboard()
 
     elif section == "Dashboard":
@@ -194,53 +256,55 @@ if files:
     elif section == "Sales":
         render_dashboard()
 
-    # ---------------- AI TOOL ----------------
+    # ---------------- AI ASSISTANT PANEL ----------------
     elif section == "AI Tool":
         st.subheader("🤖 ChatGPT Data Assistant")
-
-        q = st.text_input("Ask question")
+        q = st.text_input("Ask a question about your uploaded dataset:")
 
         if q:
             if AI_AVAILABLE:
                 sample = df.head(50).to_csv(index=False)
-
                 res = client.chat.completions.create(
                     model="gpt-4o-mini",
                     messages=[
-                        {"role":"system","content":"You are a data analyst"},
-                        {"role":"user","content":sample + "\n" + q}
+                        {"role": "system", "content": "You are a senior enterprise data analyst. Answer the user comprehensively."},
+                        {"role": "user", "content": f"Data Sample:\n{sample}\n\nUser Question: {q}"}
                     ]
                 )
                 st.write(res.choices[0].message.content)
             else:
-                st.warning("Add OpenAI API Key")
+                st.warning("⚠️ OpenAI API keys are not detected on this host system environment.")
 
-    # ---------------- MAP ----------------
+    # ---------------- GEOGRAPHIC MAP INTERACTION ----------------
     elif section == "Maps":
-        lat = [c for c in df.columns if "lat" in c]
-        lon = [c for c in df.columns if "lon" in c]
+        lat_fields = [c for c in df.columns if "lat" in c or "latitude" in c]
+        lon_fields = [c for c in df.columns if "lon" in c or "longitude" in c]
 
-        if lat and lon:
-            st.map(df[[lat[0], lon[0]]].dropna())
+        if lat_fields and lon_fields:
+            st.subheader("📍 Geospatial Metrics Placement Map")
+            st.map(df[[lat_fields[0], lon_fields[0]]].dropna())
+        else:
+            st.warning("No Latitude/Longitude parameters found in the current datasets.")
 
-    # ---------------- SAVE DASHBOARD ----------------
+    # ---------------- DATA PERSISTENCE EXPORTS ----------------
     st.markdown("---")
-    st.subheader("💾 Save Dashboard")
+    ec1, ec2 = st.columns(2)
+    
+    with ec1:
+        st.subheader("💾 Save Session Data")
+        if st.button("Save Current View"):
+            df.to_csv(f"{st.session_state.user}_dashboard.csv", index=False)
+            st.success(f"Successfully cached states to: '{st.session_state.user}_dashboard.csv'")
 
-    if st.button("Save"):
-        df.to_csv(f"{st.session_state.user}_dashboard.csv", index=False)
-        st.success("Saved!")
+    with ec2:
+        st.subheader("📥 Export Pipeline Summary")
+        def create_pdf():
+            buffer = BytesIO()
+            buffer.write(bytes(f"SNK BI Platform Summary Report\nGenerated for: {st.session_state.user}\nTotal Records Processed: {len(df)} rows across {len(df.columns)} dimensions.", 'utf-8'))
+            buffer.seek(0)
+            return buffer
 
-    # ---------------- PDF EXPORT ----------------
-    st.subheader("📥 Export PDF")
-
-    def create_pdf():
-        buffer = BytesIO()
-        buffer.write(bytes(f"Dashboard Rows: {len(df)}", 'utf-8'))
-        buffer.seek(0)
-        return buffer
-
-    st.download_button("Download PDF", create_pdf())
+        st.download_button("Download Report Abstract", create_pdf(), file_name="bi_summary_report.txt")
 
 else:
-    st.info("Upload files to start")
+    st.info("👋 Welcome! Please upload one or more CSV or Excel data packages in the left sidebar to generate your workspace dashboards.")
