@@ -5,7 +5,6 @@ import numpy as np
 from io import BytesIO
 import os
 import json
-import re
 
 # OPTIONAL AI CORE CONFIGURATION
 try:
@@ -22,7 +21,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Custom Enterprise CSS Styling for Cards
+# Custom Enterprise CSS Styling for Premium SaaS UI Elements
 st.markdown("""
 <style>
     .metric-card {
@@ -35,6 +34,13 @@ st.markdown("""
     }
     .metric-title { font-size: 14px; color: #6c757d; font-weight: bold; text-transform: uppercase; }
     .metric-value { font-size: 24px; color: #212529; font-weight: bold; margin-top: 5px; }
+    .insight-box {
+        background-color: #eef1f6;
+        padding: 15px;
+        border-radius: 8px;
+        border-left: 5px solid #28a745;
+        margin-bottom: 12px;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -92,7 +98,7 @@ if not st.session_state.user:
     login_system()
     st.stop()
 
-# Initialize AI Navigation Variables in Session State
+# Initialize State Variables
 if "ai_override_x" not in st.session_state:
     st.session_state.ai_override_x = None
 if "ai_override_y" not in st.session_state:
@@ -102,7 +108,7 @@ if "ai_override_y" not in st.session_state:
 st.sidebar.title(f"👤 Session: {st.session_state.user}")
 section = st.sidebar.radio(
     "Application Navigation",
-    ["🤖 Copilot AI Analyst & Chatbot", "📊 Dynamic Dashboard", "📈 Trend & Sales Analysis", "👁️ Data Explorer Matrix", "🗺️ Geospatial Maps", "💳 Subscription Plan"]
+    ["🧠 Autonomous AI Executive Summary", "🤖 Copilot Command Chatbot", "📊 Dynamic Dashboard", "📈 Trend Analysis", "👁️ Data Explorer Matrix", "💳 Subscription Plan"]
 )
 
 st.sidebar.markdown("---")
@@ -148,11 +154,11 @@ if files:
 
     df = pd.concat(dfs, ignore_index=True)
     
-    # Advanced Data Scrubbing and Formatting
+    # Clean and standardize columns
     df.columns = [c.strip().lower().replace(" ", "_") for c in df.columns]
     df = df.drop_duplicates()
 
-    # Intelligently isolate features
+    # Feature engineering and alignment parsing
     for col in df.columns:
         try:
             if 'date' in col or 'time' in col:
@@ -182,13 +188,10 @@ if files:
     def analyze_and_chart(data, numeric_fields, categorical_fields):
         insights = {}
         
-        # Check if AI chat requested specific layout overrides
         if st.session_state.ai_override_x and st.session_state.ai_override_y:
             primary_cat = st.session_state.ai_override_x
             primary_num = st.session_state.ai_override_y
-            st.info(f"💡 Active Dashboard Filters configured by AI Copilot Engine: `{primary_cat}` & `{primary_num}`")
         else:
-            # Automatic Fallback Engine
             time_axis = None
             for col in data.columns:
                 if any(k in col for k in ['date', 'year', 'month', 'timestamp', 'day']):
@@ -197,13 +200,12 @@ if files:
             primary_cat = time_axis if time_axis else (categorical_fields[0] if categorical_fields else data.columns[0])
             primary_num = numeric_fields[0] if numeric_fields else data.columns[0]
 
-        # 1. Distribution / Composition Layout Engine
         if primary_cat in data.columns and primary_num in data.columns:
             cardinality = data[primary_cat].nunique()
             if 1 < cardinality <= 7:
                 insights['distribution'] = {
                     'type': 'pie', 'names': primary_cat, 'values': primary_num,
-                    'title': f'Market Percentage Contribution of {primary_num.title()} by {primary_cat.title()}'
+                    'title': f'Percentage Contribution of {primary_num.title()} by {primary_cat.title()}'
                 }
             else:
                 insights['distribution'] = {
@@ -211,14 +213,11 @@ if files:
                     'title': f'Top Operational Volume Profiles: {primary_num.title()} by {primary_cat.title()}'
                 }
 
-        # 2. Chronological / Pipeline Sequential Mapping
-        if primary_cat in data.columns and primary_num in data.columns:
             insights['timeline'] = {
                 'type': 'line', 'x': primary_cat, 'y': primary_num,
                 'title': f'Performance Evaluation Waveform ({primary_num.title()} over {primary_cat.title()})'
             }
 
-        # 3. Correlation Matrix Layout
         if len(numeric_fields) >= 2:
             insights['correlation'] = {
                 'type': 'scatter', 'x': numeric_fields[0], 'y': numeric_fields[1],
@@ -247,6 +246,9 @@ if files:
             val_avg = f"{df[num_cols[0]].mean():,.2f}" if num_cols else "N/A"
             st.markdown(f'<div class="metric-card"><div class="metric-title">Statistical Mean Base</div><div class="metric-value">{val_avg}</div></div>', unsafe_allow_html=True)
 
+        if st.session_state.ai_override_x and st.session_state.ai_override_y:
+            st.info(f"🎯 View focused via Command Layer: `{st.session_state.ai_override_x}` ✖ `{st.session_state.ai_override_y}`")
+
         # Dynamic Core Visual Row
         st.markdown("### 📈 Automated Visual Intelligence Layers")
         g1, g2 = st.columns(2)
@@ -262,21 +264,17 @@ if files:
                     p_data = df.groupby(cfg['x'])[cfg['y']].sum().reset_index().sort_values(by=cfg['y'], ascending=False).head(10)
                     fig = px.bar(p_data, x=cfg['x'], y=cfg['y'], color=cfg['y'], color_continuous_scale="Blugrn", template="plotly_white")
                 st.plotly_chart(fig, use_container_width=True)
-            else:
-                st.info("Awaiting structural categorical keys to generate distribution summaries.")
 
         with g2:
             if 'timeline' in charts_config:
                 cfg = charts_config['timeline']
                 st.write(f"##### {cfg['title']}")
-                
-                # Check column data types for accurate chart aggregation rendering
                 if df[cfg['x']].dtype == 'object':
-                    t_data = df.groupby(cfg['x'])[cfg['y']].sum().reset_index()
+                    t_data = df.groupby(cfg['x'])[cfg['y']].sum().reset_index().sort_values(by=cfg['y'], ascending=False).head(15)
+                    fig = px.bar(t_data, x=cfg['x'], y=cfg['y'], template="plotly_white", color_discrete_sequence=["#007bff"])
                 else:
                     t_data = df.groupby(cfg['x'])[cfg['y']].mean().reset_index()
-                    
-                fig = px.line(t_data, x=cfg['x'], y=cfg['y'], markers=True, template="plotly_white", color_discrete_sequence=["#28a745"])
+                    fig = px.line(t_data, x=cfg['x'], y=cfg['y'], markers=True, template="plotly_white", color_discrete_sequence=["#28a745"])
                 st.plotly_chart(fig, use_container_width=True)
 
         # Statistical Insight Breakdown Row
@@ -291,8 +289,6 @@ if files:
                     st.write(f"##### {cfg['title']}")
                     fig = px.scatter(df, x=cfg['x'], y=cfg['y'], trendline="ols" if len(df) < 2000 else None, template="plotly_white")
                     st.plotly_chart(fig, use_container_width=True)
-                else:
-                    st.info("Populate additional continuous numerical data blocks to render scatter models.")
 
             with g4:
                 if active_x and active_y:
@@ -301,44 +297,75 @@ if files:
                     st.dataframe(pivot_summary, use_container_width=True, hide_index=True)
 
     # ---------------- INTERACTION SECTIONS RENDER ROUTING ----------------
-    if section == "🤖 Copilot AI Analyst & Chatbot":
-        st.subheader("🤖 GenAI Contextual Conversational Dashboard Assistant")
-        st.caption("Ask questions or issue instructions like: *'Show me the dashboard based on date and sales'*")
+    
+    if section == "🧠 Autonomous AI Executive Summary":
+        st.title("🧠 Zero-Prompt Autonomous Intelligence Briefing")
+        st.caption("This system actively calculated core indicators across your dataset to surface anomalies and strategic metrics automatically.")
         
-        # Reset State Button UI helper
+        if AI_AVAILABLE:
+            with st.spinner("Agent compiling data findings and generating narrative report..."):
+                # Build an automated statistical digest profile
+                stats_summary = ""
+                if num_cols:
+                    for n in num_cols[:3]:
+                        stats_summary += f"Column '{n}': Max={df[n].max()}, Min={df[n].min()}, Average={df[n].mean():.2f}. "
+                if cat_cols:
+                    for c in cat_cols[:2]:
+                        stats_summary += f"Categorical Axis '{c}' has {df[c].nunique()} unique metrics. Top value is '{df[c].mode()[0] if not df[c].mode().empty else 'N/A'}'. "
+                
+                agent_prompt = f"""
+                You are an elite Autonomous Chief Data Officer. Look at these statistical findings derived from a dataset:
+                {stats_summary}
+                
+                Generate a highly professional executive operational report with 3 distinct sections:
+                1. 🚨 KEY ANOMALIES & SURPRISES (point out massive spreads, risks or weird data spikes)
+                2. 📈 PERFORMANCE CONCENTRATIONS (where the bulk of volume/activity is clustered)
+                3. 🎯 STRATEGIC RECOMMENDATIONS (immediate action steps for management)
+                Keep the tone sharp, direct, and elite. Do not repeat raw syntax.
+                """
+                
+                res = client.chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=[{"role": "user", "content": agent_prompt}]
+                )
+                
+                st.markdown('<div class="insight-box">', unsafe_allow_html=True)
+                st.write(res.choices[0].message.content)
+                st.markdown('</div>', unsafe_allow_html=True)
+        else:
+            st.warning("Please supply an OpenAI API token framework to run Autonomous narrative translations.")
+            
+        # Display the base dashboard under the narrative insight block
+        build_dashboard_interface(view_mode="Advanced")
+
+    elif section == "🤖 Copilot Command Chatbot":
+        st.subheader("🤖 GenAI Contextual Conversational Dashboard Assistant")
+        st.caption("Type column targets directly to update the UI layouts. (e.g., 'Show me dashboard based on date and sales')")
+        
         if st.session_state.ai_override_x or st.session_state.ai_override_y:
-            if st.button("🔄 Clear AI Filters & Reset Default Layouts"):
+            if st.button("🔄 Clear AI View Overrides & Reset"):
                 st.session_state.ai_override_x = None
                 st.session_state.ai_override_y = None
-                st.success("Dashboard reset to automatic view layout logic.")
                 st.rerun()
 
-        user_query = st.text_input("Interrogate your system engine or control the dashboard view here:")
+        user_query = st.text_input("Issue vision layout directions to the copilot engine:")
         
         if user_query:
-            # 1. Advanced Local Algorithmic Matcher Regex (Fallback to save token runtime execution)
-            clean_query = user_query.strip().lower().replace(" ", "_")
-            matched_columns = [col for col in df.columns if col in clean_query or col.replace("_", "") in clean_query.replace("_", "")]
-            
-            # 2. Modern LLM Deep Intent Framework Ingestion
             if AI_AVAILABLE:
-                with st.spinner("Processing contextual parameters and configuring visual pipeline engines..."):
+                with st.spinner("Processing layout updates..."):
                     columns_catalog = ", ".join(df.columns.tolist())
                     system_prompt = f"""
-                    You are an expert data analysis router. Your job is to extract columns requested by the user for a chart.
-                    The available columns in this dataset are strictly: [{columns_catalog}].
-                    Look closely at the user request. Extract exactly one column for the X-axis (ideally categorical or time-based) and exactly one column for the Y-axis (numerical metric).
-                    Respond back strictly in valid JSON format without markdown wrapping code block quotes.
-                    Example Output Format: {{"x_column": "date", "y_column": "sales"}}
-                    If the user is asking a general analysis question rather than building a chart, return empty values: {{"x_column": "", "y_column": ""}}
+                    Identify chart formatting column updates requested by users.
+                    Available system column array fields: [{columns_catalog}].
+                    Extract exactly one X axis parameter and exactly one Y axis numeric base from the user text.
+                    Return the result as a raw JSON dictionary match containing keys 'x_column' and 'y_column'. No extra notes.
                     """
-                    
                     try:
                         response = client.chat.completions.create(
                             model="gpt-4o-mini",
                             messages=[
                                 {"role": "system", "content": system_prompt},
-                                {"role": "user", "content": f"User Request: '{user_query}'"}
+                                {"role": "user", "content": user_query}
                             ],
                             response_format={"type": "json_object"}
                         )
@@ -349,23 +376,16 @@ if files:
                         if ax_x in df.columns and ax_y in df.columns:
                             st.session_state.ai_override_x = ax_x
                             st.session_state.ai_override_y = ax_y
-                            st.success(f"🎯 AI adjusted your primary workspace views to target `{ax_x}` on X-Axis and `{ax_y}` on Y-Axis!")
-                    except Exception as ai_err:
+                            st.success(f"Focused visual mapping onto targets: `{ax_x}` by `{ax_y}`")
+                    except Exception:
                         pass
-
-            # Local fallback matching if LLM parsing hasn't handled the switch override
-            if not st.session_state.ai_override_x and len(matched_columns) >= 2:
-                st.session_state.ai_override_x = matched_columns[0]
-                st.session_state.ai_override_y = matched_columns[1]
-                st.success(f"🎯 Local Matcher configured dashboard targets to match extracted components: `{matched_columns[0]}` & `{matched_columns[1]}`")
-
-            # Instantly display response variations in real-time inline
+            
             build_dashboard_interface(view_mode="Advanced")
 
     elif section == "📊 Dynamic Dashboard":
         build_dashboard_interface(view_mode="Standard")
 
-    elif section == "📈 Trend & Sales Analysis":
+    elif section == "📈 Trend Analysis":
         build_dashboard_interface(view_mode="Advanced")
 
     elif section == "👁️ Data Explorer Matrix":
